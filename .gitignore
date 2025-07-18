@@ -6,6 +6,12 @@ __pycache__/
 # C extensions
 *.so
 
+# Ignorer les fichiers .pdf, .png, .csv et Notebook
+*.pdf
+*.png
+*.csv
+*.ipynb
+
 # Distribution / packaging
 .Python
 build/
