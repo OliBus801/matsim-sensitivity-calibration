@@ -33,7 +33,7 @@ def collect_iteration_data(sim_dir, prefix, baseline):
 
 
     
-# We start by retrieving the average executed plan scores for all iterations
+    # We start by retrieving the average executed plan scores for all iterations
     avg_scores = retrieve_all_executed_plan_scores(sim_dir, prefix)
 
     # Then we retrieve modestats and calculate the RMSE for mode statistics
@@ -110,6 +110,34 @@ def collect_iteration_data(sim_dir, prefix, baseline):
     print(f"Saved iteration data to {output_file}")
 
     return all_data_df
+
+def get_max_iteration(sim_dir):
+    """
+    Returns the maximum iteration number found in the ITERS subfolder.
+
+    Args:
+        sim_dir (str): Path to the simulation directory.
+
+    Returns:
+        int: The maximum iteration number, or None if no iterations found.
+    """
+    iters_dir = os.path.join(sim_dir, "ITERS")
+    if not os.path.exists(iters_dir):
+        raise FileNotFoundError(f"No ITERS directory in {sim_dir}")
+
+    iteration_dirs = [d for d in os.listdir(iters_dir) if d.startswith("it.")]
+    if not iteration_dirs:
+        return None
+
+    iteration_nums = []
+    for d in iteration_dirs:
+        try:
+            num = int(d.split(".")[1])
+            iteration_nums.append(num)
+        except (IndexError, ValueError):
+            continue
+
+    return max(iteration_nums) if iteration_nums else None
 
 def retrieve_all_executed_plan_scores(sub_dir_path, prefix=None):
     """
