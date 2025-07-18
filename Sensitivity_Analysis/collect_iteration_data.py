@@ -4,6 +4,8 @@ from tqdm import tqdm
 import numpy as np
 import pandas as pd
 import argparse
+import gzip
+import xml.etree.ElementTree as ET
 from collect_data import (
     calculate_average_trip_stat,
     calculate_vc_ratio
@@ -81,14 +83,24 @@ def collect_iteration_data(sim_dir, prefix, baseline):
 
         try:
             avg_score = avg_scores.get(iteration_num, None)
+
+            # If the avg_score isn't found, we'll try and recompute it
+            if avg_score == None :
+                avg_score = calculate_avg_score(it_path, iteration=it_dir.split(".")[1], prefix=prefix)
         except Exception as e:
             print(f"Error retrieving average score for {iteration_num}: {e}")
+            avg_score = None
 
         # Retrieve the RMSE for the current iteration from the DataFrame
         if iteration_num in rmse_mode_stats.index:
             rmse_mode = rmse_mode_stats.loc[iteration_num, "total_rmse"]
         else:
-            rmse_mode = None
+            # If the rmse_mode isn't found, we'll try and recompute it
+            try:
+                rmse_mode = calculate_iter_mode_rmse(it_path, iteration=it_dir.split(".")[1], prefix=prefix)
+            except Exception as e:
+                print(f"Error computing RMSE of mode stats for {iteration_num}: {e}")
+                rmse_mode = None
 
         all_data.append({
             "iteration": iteration_num,
@@ -110,34 +122,6 @@ def collect_iteration_data(sim_dir, prefix, baseline):
     print(f"Saved iteration data to {output_file}")
 
     return all_data_df
-
-def get_max_iteration(sim_dir):
-    """
-    Returns the maximum iteration number found in the ITERS subfolder.
-
-    Args:
-        sim_dir (str): Path to the simulation directory.
-
-    Returns:
-        int: The maximum iteration number, or None if no iterations found.
-    """
-    iters_dir = os.path.join(sim_dir, "ITERS")
-    if not os.path.exists(iters_dir):
-        raise FileNotFoundError(f"No ITERS directory in {sim_dir}")
-
-    iteration_dirs = [d for d in os.listdir(iters_dir) if d.startswith("it.")]
-    if not iteration_dirs:
-        return None
-
-    iteration_nums = []
-    for d in iteration_dirs:
-        try:
-            num = int(d.split(".")[1])
-            iteration_nums.append(num)
-        except (IndexError, ValueError):
-            continue
-
-    return max(iteration_nums) if iteration_nums else None
 
 def retrieve_all_executed_plan_scores(sub_dir_path, prefix=None):
     """
@@ -189,6 +173,88 @@ def retrieve_all_mode_stats(sub_dir_path, prefix=None):
         raise ValueError(f"Column 'iteration' not found in {modestats_file}.")
 
     return df.set_index('iteration')
+
+def calculate_avg_score(it_path, iteration, prefix=None):
+    """
+    Calculate the average score of selected plans from a plans XML file.
+
+    Args:
+        it_path (str): Path to the iteration directory.
+        iteration (str): The iteration number as a string.
+        prefix (str): Optional prefix for the file name.
+
+    Returns:
+        float: The average score of selected plans.
+    """
+    plans_file = os.path.join(it_path, f"{prefix}.{iteration}.plans.xml.gz" if prefix is not None else f"{iteration}.plans.xml.gz")
+
+    if not os.path.exists(plans_file):
+        raise FileNotFoundError(f"Plans file {plans_file} does not exist.")
+
+    total_score = 0.0
+    count = 0
+
+    try:
+        with gzip.open(plans_file, 'rb') as f:
+            # Use iterparse for memory efficiency
+            context = ET.iterparse(f, events=("end",))
+            for event, elem in context:
+                if elem.tag == "plan" and elem.get("selected") == "yes":
+                    score = elem.get("score")
+                    if score is not None:
+                        total_score += float(score)
+                        count += 1
+                    # Only one selected plan per person, so break after finding it
+                    # Clear the parent 'person' element to free memory
+                    parent = elem.getparent() if hasattr(elem, "getparent") else None
+                    if parent is not None:
+                        parent.clear()
+                elif elem.tag == "person":
+                    elem.clear()  # Free memory for processed person
+            # Final cleanup
+            elem.clear()
+    except Exception as e:
+        raise ValueError(f"Error parsing {plans_file}: {e}")
+
+    if count == 0:
+        raise ValueError(f"No selected plans found in {plans_file}.")
+
+    return total_score / count
+
+def calculate_iter_mode_rmse(it_path, iteration, prefix=None, baseline=BASELINE_MODE_STATS):
+    """
+    Calculate the RMSE for mode proportions from the trips CSV file.
+
+    Args:
+        it_path (str): Path to the iteration directory.
+        iteration (str): The iteration number as a string.
+        prefix (str): Optional prefix for the file name.
+
+    Returns:
+        float: The RMSE value for mode proportions.
+    """
+    trips_file = os.path.join(it_path, f"{prefix}.{iteration}.trips.csv.gz" if prefix is not None else f"{iteration}.trips.csv.gz")
+
+    if not os.path.exists(trips_file):
+        raise FileNotFoundError(f"Trip file {trips_file} does not exist.")
+
+    try:
+        # Read the gzipped CSV file with ';' as the separator
+        df = pd.read_csv(trips_file, sep=';', compression='gzip')
+    except Exception as e:
+        raise ValueError(f"Error reading {trips_file}: {e}")
+
+    if 'main_mode' not in df.columns:
+        raise ValueError(f"Column 'main_mode' not found in {trips_file}.")
+
+    # Calculate the proportion of each mode
+    mode_counts = df['main_mode'].value_counts(normalize=True)
+
+    # Compute RMSE against the baseline mode stats
+    squared_errors = [(mode_counts.get(mode, 0) - baseline.get(mode, 0)) ** 2 for mode in baseline.keys()]
+    mse = np.mean(squared_errors)
+
+    return math.sqrt(mse)
 
 def calculate_rmse_counts(iter_dir, iteration, prefix=None):
     """
