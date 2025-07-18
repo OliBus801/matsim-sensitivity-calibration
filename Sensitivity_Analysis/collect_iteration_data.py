@@ -36,11 +36,19 @@ def collect_iteration_data(sim_dir, prefix, baseline):
 
     
     # We start by retrieving the average executed plan scores for all iterations
-    avg_scores = retrieve_all_executed_plan_scores(sim_dir, prefix)
+    try:
+        avg_scores = retrieve_all_executed_plan_scores(sim_dir, prefix)
+    except Exception as e:
+        print(f"Error retrieving executed plan scores: {e}")
+        avg_scores = pd.Series(dtype=float)
 
     # Then we retrieve modestats and calculate the RMSE for mode statistics
-    modes_stats = retrieve_all_mode_stats(sim_dir, prefix)
-    rmse_mode_stats = calculate_rmse_mode_stats(modes_stats, baseline)
+    try:
+        modes_stats = retrieve_all_mode_stats(sim_dir, prefix)
+        rmse_mode_stats = calculate_rmse_mode_stats(modes_stats, baseline)
+    except Exception as e:
+        print(f"Error retrieving or calculating RMSE mode stats: {e}")
+        rmse_mode_stats = pd.Series(dtype=float)
 
     # Then we need to iterate through the ITERS directory to collect data for each iteration
     iters_dir = os.path.join(sim_dir, "ITERS")
@@ -288,13 +296,14 @@ def calculate_rmse_counts(iter_dir, iteration, prefix=None):
 
 def calculate_rmse_mode_stats(modes_stats, baseline):
     """
-    Calculate the RMSE for mode statistics for all iteration in the DataFrame.
+    Calculate the RMSE for mode statistics for all iterations in the DataFrame.
 
     Args:
-        modes_stats (Pandas DataFrame): A pandas DataFrame with the mode stats for each given modes.
+        modes_stats (pd.DataFrame): DataFrame with mode stats for each iteration.
+        baseline (dict): Baseline mode proportions.
 
     Returns:
-        float: The RMSE value.
+        pd.DataFrame: DataFrame with total_rmse for each iteration.
     """
     modes = [col for col in modes_stats.columns if col != "iteration"]
     
@@ -345,7 +354,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Aggregate MATSim iteration data across multiple seeds.")
     parser.add_argument("root_directory", type=str, help="Path to directory containing subdirectories.")
     parser.add_argument("--prefix", type=str, default=None, help="Optional prefix for output files.")
-    parser.add_argument("--reference_modestats", type=str, default=BERLIN_MODE_STATS, help="Path to reference modestats CSV file.")
+    parser.add_argument("--reference_modestats", type=str, default=BASELINE_MODE_STATS, help="Path to reference modestats CSV file.")
     args = parser.parse_args()
     main(args.root_directory, prefix=args.prefix, baseline=args.reference_modestats)
 
