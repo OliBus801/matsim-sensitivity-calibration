@@ -4,6 +4,8 @@ from tqdm import tqdm
 import numpy as np
 import pandas as pd
 import argparse
+import gzip
+import xml.etree.ElementTree as ET
 from collect_data import (
     calculate_average_trip_stat,
     calculate_vc_ratio
@@ -33,12 +35,20 @@ def collect_iteration_data(sim_dir, prefix, baseline):
 
 
     
-# We start by retrieving the average executed plan scores for all iterations
-    avg_scores = retrieve_all_executed_plan_scores(sim_dir, prefix)
+    # We start by retrieving the average executed plan scores for all iterations
+    try:
+        avg_scores = retrieve_all_executed_plan_scores(sim_dir, prefix)
+    except Exception as e:
+        print(f"Error retrieving executed plan scores: {e}")
+        avg_scores = pd.Series(dtype=float)
 
     # Then we retrieve modestats and calculate the RMSE for mode statistics
-    modes_stats = retrieve_all_mode_stats(sim_dir, prefix)
-    rmse_mode_stats = calculate_rmse_mode_stats(modes_stats, baseline)
+    try:
+        modes_stats = retrieve_all_mode_stats(sim_dir, prefix)
+        rmse_mode_stats = calculate_rmse_mode_stats(modes_stats, baseline)
+    except Exception as e:
+        print(f"Error retrieving or calculating RMSE mode stats: {e}")
+        rmse_mode_stats = pd.Series(dtype=float)
 
     # Then we need to iterate through the ITERS directory to collect data for each iteration
     iters_dir = os.path.join(sim_dir, "ITERS")
@@ -81,14 +91,24 @@ def collect_iteration_data(sim_dir, prefix, baseline):
 
         try:
             avg_score = avg_scores.get(iteration_num, None)
+
+            # If the avg_score isn't found, we'll try and recompute it
+            if avg_score == None :
+                avg_score = calculate_avg_score(it_path, iteration=it_dir.split(".")[1], prefix=prefix)
         except Exception as e:
             print(f"Error retrieving average score for {iteration_num}: {e}")
+            avg_score = None
 
         # Retrieve the RMSE for the current iteration from the DataFrame
         if iteration_num in rmse_mode_stats.index:
             rmse_mode = rmse_mode_stats.loc[iteration_num, "total_rmse"]
         else:
-            rmse_mode = None
+            # If the rmse_mode isn't found, we'll try and recompute it
+            try:
+                rmse_mode = calculate_iter_mode_rmse(it_path, iteration=it_dir.split(".")[1], prefix=prefix)
+            except Exception as e:
+                print(f"Error computing RMSE of mode stats for {iteration_num}: {e}")
+                rmse_mode = None
 
         all_data.append({
             "iteration": iteration_num,
@@ -162,6 +182,88 @@ def retrieve_all_mode_stats(sub_dir_path, prefix=None):
 
     return df.set_index('iteration')
 
+def calculate_avg_score(it_path, iteration, prefix=None):
+    """
+    Calculate the average score of selected plans from a plans XML file.
+
+    Args:
+        it_path (str): Path to the iteration directory.
+        iteration (str): The iteration number as a string.
+        prefix (str): Optional prefix for the file name.
+
+    Returns:
+        float: The average score of selected plans.
+    """
+    plans_file = os.path.join(it_path, f"{prefix}.{iteration}.plans.xml.gz" if prefix is not None else f"{iteration}.plans.xml.gz")
+
+    if not os.path.exists(plans_file):
+        raise FileNotFoundError(f"Plans file {plans_file} does not exist.")
+
+    total_score = 0.0
+    count = 0
+
+    try:
+        with gzip.open(plans_file, 'rb') as f:
+            # Use iterparse for memory efficiency
+            context = ET.iterparse(f, events=("end",))
+            for event, elem in context:
+                if elem.tag == "plan" and elem.get("selected") == "yes":
+                    score = elem.get("score")
+                    if score is not None:
+                        total_score += float(score)
+                        count += 1
+                    # Only one selected plan per person, so break after finding it
+                    # Clear the parent 'person' element to free memory
+                    parent = elem.getparent() if hasattr(elem, "getparent") else None
+                    if parent is not None:
+                        parent.clear()
+                elif elem.tag == "person":
+                    elem.clear()  # Free memory for processed person
+            # Final cleanup
+            elem.clear()
+    except Exception as e:
+        raise ValueError(f"Error parsing {plans_file}: {e}")
+
+    if count == 0:
+        raise ValueError(f"No selected plans found in {plans_file}.")
+
+    return total_score / count
+
+def calculate_iter_mode_rmse(it_path, iteration, prefix=None, baseline=BASELINE_MODE_STATS):
+    """
+    Calculate the RMSE for mode proportions from the trips CSV file.
+
+    Args:
+        it_path (str): Path to the iteration directory.
+        iteration (str): The iteration number as a string.
+        prefix (str): Optional prefix for the file name.
+
+    Returns:
+        float: The RMSE value for mode proportions.
+    """
+    trips_file = os.path.join(it_path, f"{prefix}.{iteration}.trips.csv.gz" if prefix is not None else f"{iteration}.trips.csv.gz")
+
+    if not os.path.exists(trips_file):
+        raise FileNotFoundError(f"Trip file {trips_file} does not exist.")
+
+    try:
+        # Read the gzipped CSV file with ';' as the separator
+        df = pd.read_csv(trips_file, sep=';', compression='gzip')
+    except Exception as e:
+        raise ValueError(f"Error reading {trips_file}: {e}")
+
+    if 'main_mode' not in df.columns:
+        raise ValueError(f"Column 'main_mode' not found in {trips_file}.")
+
+    # Calculate the proportion of each mode
+    mode_counts = df['main_mode'].value_counts(normalize=True)
+
+    # Compute RMSE against the baseline mode stats
+    squared_errors = [(mode_counts.get(mode, 0) - baseline.get(mode, 0)) ** 2 for mode in baseline.keys()]
+    mse = np.mean(squared_errors)
+
+    return math.sqrt(mse)
+
 def calculate_rmse_counts(iter_dir, iteration, prefix=None):
     """
     Calculate the RMSE for counts in the given iteration directory.
@@ -194,13 +296,14 @@ def calculate_rmse_counts(iter_dir, iteration, prefix=None):
 
 def calculate_rmse_mode_stats(modes_stats, baseline):
     """
-    Calculate the RMSE for mode statistics for all iteration in the DataFrame.
+    Calculate the RMSE for mode statistics for all iterations in the DataFrame.
 
     Args:
-        modes_stats (Pandas DataFrame): A pandas DataFrame with the mode stats for each given modes.
+        modes_stats (pd.DataFrame): DataFrame with mode stats for each iteration.
+        baseline (dict): Baseline mode proportions.
 
     Returns:
-        float: The RMSE value.
+        pd.DataFrame: DataFrame with total_rmse for each iteration.
     """
     modes = [col for col in modes_stats.columns if col != "iteration"]
     
@@ -251,7 +354,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Aggregate MATSim iteration data across multiple seeds.")
     parser.add_argument("root_directory", type=str, help="Path to directory containing subdirectories.")
     parser.add_argument("--prefix", type=str, default=None, help="Optional prefix for output files.")
-    parser.add_argument("--reference_modestats", type=str, default=BERLIN_MODE_STATS, help="Path to reference modestats CSV file.")
+    parser.add_argument("--reference_modestats", type=str, default=BASELINE_MODE_STATS, help="Path to reference modestats CSV file.")
     args = parser.parse_args()
     main(args.root_directory, prefix=args.prefix, baseline=args.reference_modestats)
 

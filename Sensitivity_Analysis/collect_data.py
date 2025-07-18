@@ -386,9 +386,8 @@ def load_link_capacities(sub_dir_path, iteration=None, prefix=None):
         'type': str
     }
 
-    with open(links_file, 'r') as f:
-        header = pd.read_csv(f, sep=';', nrows=0).columns
-    
+    header = pd.read_csv(links_file, sep=';', nrows=0).columns
+
     actual_dtypes = {col: typ for col, typ in desired_dtypes.items() if col in header}
 
     df = pd.read_csv(links_file, sep=';', na_values=["", "null"], dtype=actual_dtypes)
