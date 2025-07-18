@@ -26,23 +26,22 @@ BERLIN_MODE_STATS = {
 }
 
 def collect_iteration_data(sim_dir, prefix, baseline):
-
-    # We start by checking if iteration_data.csv already exists
     iteration_data_file = os.path.join(sim_dir, "iteration_data.csv")
+
+    # Check if iteration_data.csv exists
     if os.path.exists(iteration_data_file):
-        print(f"File {iteration_data_file} already exists. Skipping data collection.")
-        return pd.read_csv(iteration_data_file)
+        existing_data = pd.read_csv(iteration_data_file)
+    else:
+        existing_data = pd.DataFrame()
 
-
-    
-    # We start by retrieving the average executed plan scores for all iterations
+    # Retrieve the average executed plan scores for all iterations
     try:
         avg_scores = retrieve_all_executed_plan_scores(sim_dir, prefix)
     except Exception as e:
         print(f"Error retrieving executed plan scores: {e}")
         avg_scores = pd.Series(dtype=float)
 
-    # Then we retrieve modestats and calculate the RMSE for mode statistics
+    # Retrieve modestats and calculate the RMSE for mode statistics
     try:
         modes_stats = retrieve_all_mode_stats(sim_dir, prefix)
         rmse_mode_stats = calculate_rmse_mode_stats(modes_stats, baseline)
@@ -50,20 +49,26 @@ def collect_iteration_data(sim_dir, prefix, baseline):
         print(f"Error retrieving or calculating RMSE mode stats: {e}")
         rmse_mode_stats = pd.Series(dtype=float)
 
-    # Then we need to iterate through the ITERS directory to collect data for each iteration
+    # Iterate through the ITERS directory to collect data for each iteration
     iters_dir = os.path.join(sim_dir, "ITERS")
     if not os.path.exists(iters_dir):
         raise FileNotFoundError(f"No ITERS directory in {sim_dir}")
-    
+
     iteration_dirs = sorted(
         [d for d in os.listdir(iters_dir) if d.startswith("it.")],
         key=lambda x: int(x.split(".")[1])
     )
 
-    all_data = []
-
     for it_dir in tqdm(iteration_dirs, desc=f"Processing iterations..."):
+        iteration_num = int(it_dir.split(".")[1])
+
+        # Skip if iteration is already processed
+        if not existing_data.empty and iteration_num in existing_data["iteration"].values:
+            print(f"Iteration {iteration_num} already processed. Skipping.")
+            continue
+
         it_path = os.path.join(iters_dir, it_dir)
+
         # Calculate average trip distance and time
         try:
             avg_dist, avg_time = calculate_average_trip_stat(it_path, iteration=it_dir.split(".")[1], prefix=prefix)
@@ -87,13 +92,11 @@ def collect_iteration_data(sim_dir, prefix, baseline):
             print(f"Error calculating RMSE counts in {it_path}: {e}")
             rmse_counts = None
 
-        iteration_num = int(it_dir.split(".")[1])
-
         try:
             avg_score = avg_scores.get(iteration_num, None)
 
-            # If the avg_score isn't found, we'll try and recompute it
-            if avg_score == None :
+            # If the avg_score isn't found, recompute it
+            if avg_score is None:
                 avg_score = calculate_avg_score(it_path, iteration=it_dir.split(".")[1], prefix=prefix)
         except Exception as e:
             print(f"Error retrieving average score for {iteration_num}: {e}")
@@ -110,7 +113,8 @@ def collect_iteration_data(sim_dir, prefix, baseline):
                 print(f"Error computing RMSE of mode stats for {iteration_num}: {e}")
                 rmse_mode = None
 
-        all_data.append({
+        # Append data for the current iteration
+        iteration_data = {
             "iteration": iteration_num,
             "average_executed_plan_score": avg_score,
             "average_trip_distance": avg_dist,
@@ -119,17 +123,19 @@ def collect_iteration_data(sim_dir, prefix, baseline):
             "std_dev_vc_ratio": std_vc,
             "counts_rmse": rmse_counts,
             "rmse_mode_stats": rmse_mode
-        })
-    
-    # Convert the list of dictionaries to a DataFrame
-    all_data_df = pd.DataFrame(all_data)
+        }
 
-    # Save the DataFrame to a CSV file
-    output_file = os.path.join(sim_dir, "iteration_data.csv")
-    all_data_df.to_csv(output_file, index=False)
-    print(f"Saved iteration data to {output_file}")
+        # Write the data to the CSV file
+        new_data = pd.DataFrame([iteration_data])
+        if not os.path.exists(iteration_data_file):
+            new_data.to_csv(iteration_data_file, index=False)
+        else:
+            new_data.to_csv(iteration_data_file, mode='a', header=False, index=False)
 
-    return all_data_df
+        print(f"Saved data for iteration {iteration_num} to {iteration_data_file}")
+
+    print(f"All iterations processed and saved to {iteration_data_file}")
+    return pd.read_csv(iteration_data_file)
 
 def retrieve_all_executed_plan_scores(sub_dir_path, prefix=None):
     """
