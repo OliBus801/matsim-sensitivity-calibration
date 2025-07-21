@@ -310,17 +310,40 @@ def parse_events(sub_dir_path, save_to_file=True, time_bin_size=3600, iteration=
     link_volumes = defaultdict(lambda: defaultdict(int))
     max_time = 0.0
 
-    # Single pass to process events and calculate volumes
-    with gzip.open(events_file, 'rt', encoding='utf-8') as f:
-        context = ET.iterparse(f, events=('end',))
-        for event, elem in context:
-            if elem.tag == 'event' and elem.attrib.get('type') == 'left link':
-                time = float(elem.attrib['time'])
-                link_id = elem.attrib['link']
-                time_bin = int(time // time_bin_size)
-                link_volumes[link_id][time_bin] += 1
-                max_time = max(max_time, time)
-            elem.clear()
+    # Single pass to process events and calculate volumes with encoding fallback
+    try:
+        with gzip.open(events_file, 'rt', encoding='utf-8') as f:
+            context = ET.iterparse(f, events=('end',))
+            for event, elem in context:
+                if elem.tag == 'event' and elem.attrib.get('type') == 'left link':
+                    time = float(elem.attrib['time'])
+                    link_id = elem.attrib['link']
+                    time_bin = int(time // time_bin_size)
+                    link_volumes[link_id][time_bin] += 1
+                    max_time = max(max_time, time)
+                elem.clear()
+                # Clear the root to free memory for large files
+                if hasattr(elem, 'getparent'):
+                    parent = elem.getparent()
+                    if parent is not None:
+                        parent.remove(elem)
+    except UnicodeDecodeError:
+        # Fallback: try without explicit encoding
+        with gzip.open(events_file, 'rt') as f:
+            context = ET.iterparse(f, events=('end',))
+            for event, elem in context:
+                if elem.tag == 'event' and elem.attrib.get('type') == 'left link':
+                    time = float(elem.attrib['time'])
+                    link_id = elem.attrib['link']
+                    time_bin = int(time // time_bin_size)
+                    link_volumes[link_id][time_bin] += 1
+                    max_time = max(max_time, time)
+                elem.clear()
+                # Clear the root to free memory for large files
+                if hasattr(elem, 'getparent'):
+                    parent = elem.getparent()
+                    if parent is not None:
+                        parent.remove(elem)
 
     # Calculate the total number of time bins
     num_bins = int(math.ceil(max_time / time_bin_size))
