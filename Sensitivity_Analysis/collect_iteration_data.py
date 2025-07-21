@@ -1,5 +1,6 @@
 import os
 import math
+import pickle
 from tqdm import tqdm
 import numpy as np
 import pandas as pd
@@ -25,45 +26,93 @@ BERLIN_MODE_STATS = {
     "walk": 0.2968
 }
 
-def collect_iteration_data(sim_dir, prefix, baseline):
-
-    # We start by checking if iteration_data.csv already exists
-    iteration_data_file = os.path.join(sim_dir, "iteration_data.csv")
-    if os.path.exists(iteration_data_file):
-        print(f"File {iteration_data_file} already exists. Skipping data collection.")
-        return pd.read_csv(iteration_data_file)
-
-
+def get_cached_result(cache_file, compute_func, *args, **kwargs):
+    """
+    Generic caching function to avoid recomputing expensive operations.
     
-    # We start by retrieving the average executed plan scores for all iterations
+    Args:
+        cache_file (str): Path to the cache file
+        compute_func (callable): Function to compute the result if not cached
+        *args, **kwargs: Arguments to pass to compute_func
+    
+    Returns:
+        The cached or computed result
+    """
+    if os.path.exists(cache_file):
+        try:
+            with open(cache_file, 'rb') as f:
+                return pickle.load(f)
+        except:
+            # If cache is corrupted, recompute
+            pass
+    
+    # Compute the result
+    result = compute_func(*args, **kwargs)
+    
+    # Save to cache
     try:
-        avg_scores = retrieve_all_executed_plan_scores(sim_dir, prefix)
-    except Exception as e:
-        print(f"Error retrieving executed plan scores: {e}")
-        avg_scores = pd.Series(dtype=float)
+        os.makedirs(os.path.dirname(cache_file), exist_ok=True)
+        with open(cache_file, 'wb') as f:
+            pickle.dump(result, f)
+    except:
+        # If caching fails, just continue without caching
+        pass
+    
+    return result
 
-    # Then we retrieve modestats and calculate the RMSE for mode statistics
-    try:
-        modes_stats = retrieve_all_mode_stats(sim_dir, prefix)
-        rmse_mode_stats = calculate_rmse_mode_stats(modes_stats, baseline)
-    except Exception as e:
-        print(f"Error retrieving or calculating RMSE mode stats: {e}")
-        rmse_mode_stats = pd.Series(dtype=float)
+def collect_iteration_data(sim_dir, prefix, baseline):
+    iteration_data_file = os.path.join(sim_dir, "iteration_data.csv")
 
-    # Then we need to iterate through the ITERS directory to collect data for each iteration
+    # Check if iteration_data.csv exists and load processed iterations
+    existing_iterations = set()
+    if os.path.exists(iteration_data_file):
+        existing_data = pd.read_csv(iteration_data_file)
+        existing_iterations = set(existing_data["iteration"].values)
+    
+    # Cache the expensive computations that are done once
+    avg_scores = None
+    rmse_mode_stats = None
+
+    # Iterate through the ITERS directory to collect data for each iteration
     iters_dir = os.path.join(sim_dir, "ITERS")
     if not os.path.exists(iters_dir):
         raise FileNotFoundError(f"No ITERS directory in {sim_dir}")
-    
+
     iteration_dirs = sorted(
         [d for d in os.listdir(iters_dir) if d.startswith("it.")],
         key=lambda x: int(x.split(".")[1])
     )
 
-    all_data = []
-
     for it_dir in tqdm(iteration_dirs, desc=f"Processing iterations..."):
+        iteration_num = int(it_dir.split(".")[1])
+
+        # Skip if iteration is already processed
+        if iteration_num in existing_iterations:
+            print(f"Iteration {iteration_num} already processed. Skipping.")
+            continue
+
+        # Load expensive computations only when needed (lazy loading with caching)
+        if avg_scores is None:
+            cache_file = os.path.join(sim_dir, ".cache_scorestats.pkl")
+            try:
+                avg_scores = get_cached_result(cache_file, retrieve_all_executed_plan_scores, sim_dir, prefix)
+            except Exception as e:
+                print(f"Error retrieving executed plan scores: {e}")
+                avg_scores = pd.Series(dtype=float)
+        
+        if rmse_mode_stats is None:
+            cache_file = os.path.join(sim_dir, ".cache_modestats.pkl")
+            try:
+                def compute_rmse_mode_stats():
+                    modes_stats = retrieve_all_mode_stats(sim_dir, prefix)
+                    return calculate_rmse_mode_stats(modes_stats, baseline)
+                rmse_mode_stats = get_cached_result(cache_file, compute_rmse_mode_stats)
+            except Exception as e:
+                print(f"Error retrieving or calculating RMSE mode stats: {e}")
+                rmse_mode_stats = pd.Series(dtype=float)
+
         it_path = os.path.join(iters_dir, it_dir)
+
         # Calculate average trip distance and time
         try:
             avg_dist, avg_time = calculate_average_trip_stat(it_path, iteration=it_dir.split(".")[1], prefix=prefix)
@@ -87,13 +136,11 @@ def collect_iteration_data(sim_dir, prefix, baseline):
             print(f"Error calculating RMSE counts in {it_path}: {e}")
             rmse_counts = None
 
-        iteration_num = int(it_dir.split(".")[1])
-
         try:
             avg_score = avg_scores.get(iteration_num, None)
 
-            # If the avg_score isn't found, we'll try and recompute it
-            if avg_score == None :
+            # If the avg_score isn't found, recompute it
+            if avg_score is None:
                 avg_score = calculate_avg_score(it_path, iteration=it_dir.split(".")[1], prefix=prefix)
         except Exception as e:
             print(f"Error retrieving average score for {iteration_num}: {e}")
@@ -110,7 +157,8 @@ def collect_iteration_data(sim_dir, prefix, baseline):
                 print(f"Error computing RMSE of mode stats for {iteration_num}: {e}")
                 rmse_mode = None
 
-        all_data.append({
+        # Append data for the current iteration
+        iteration_data = {
             "iteration": iteration_num,
             "average_executed_plan_score": avg_score,
             "average_trip_distance": avg_dist,
@@ -119,17 +167,19 @@ def collect_iteration_data(sim_dir, prefix, baseline):
             "std_dev_vc_ratio": std_vc,
             "counts_rmse": rmse_counts,
             "rmse_mode_stats": rmse_mode
-        })
-    
-    # Convert the list of dictionaries to a DataFrame
-    all_data_df = pd.DataFrame(all_data)
+        }
 
-    # Save the DataFrame to a CSV file
-    output_file = os.path.join(sim_dir, "iteration_data.csv")
-    all_data_df.to_csv(output_file, index=False)
-    print(f"Saved iteration data to {output_file}")
+        # Write the data to the CSV file
+        new_data = pd.DataFrame([iteration_data])
+        if not os.path.exists(iteration_data_file):
+            new_data.to_csv(iteration_data_file, index=False)
+        else:
+            new_data.to_csv(iteration_data_file, mode='a', header=False, index=False)
 
-    return all_data_df
+        print(f"Saved data for iteration {iteration_num} to {iteration_data_file}")
+
+    print(f"All iterations processed and saved to {iteration_data_file}")
+    return pd.read_csv(iteration_data_file)
 
 def retrieve_all_executed_plan_scores(sub_dir_path, prefix=None):
     """
@@ -203,8 +253,8 @@ def calculate_avg_score(it_path, iteration, prefix=None):
     count = 0
 
     try:
-        with gzip.open(plans_file, 'rb') as f:
-            # Use iterparse for memory efficiency
+        # Try UTF-8 first
+        with gzip.open(plans_file, 'rt', encoding='utf-8') as f:
             context = ET.iterparse(f, events=("end",))
             for event, elem in context:
                 if elem.tag == "plan" and elem.get("selected") == "yes":
@@ -212,15 +262,30 @@ def calculate_avg_score(it_path, iteration, prefix=None):
                     if score is not None:
                         total_score += float(score)
                         count += 1
-                    # Only one selected plan per person, so break after finding it
-                    # Clear the parent 'person' element to free memory
-                    parent = elem.getparent() if hasattr(elem, "getparent") else None
+                # Clear memory efficiently
+                elem.clear()
+                # Clear parent to free memory for large files
+                if hasattr(elem, 'getparent'):
+                    parent = elem.getparent()
                     if parent is not None:
                         parent.clear()
-                elif elem.tag == "person":
-                    elem.clear()  # Free memory for processed person
-            # Final cleanup
-            elem.clear()
+    except UnicodeDecodeError:
+        # Fallback without encoding
+        with gzip.open(plans_file, 'rt') as f:
+            context = ET.iterparse(f, events=("end",))
+            for event, elem in context:
+                if elem.tag == "plan" and elem.get("selected") == "yes":
+                    score = elem.get("score")
+                    if score is not None:
+                        total_score += float(score)
+                        count += 1
+                # Clear memory efficiently
+                elem.clear()
+                # Clear parent to free memory for large files
+                if hasattr(elem, 'getparent'):
+                    parent = elem.getparent()
+                    if parent is not None:
+                        parent.clear()
     except Exception as e:
         raise ValueError(f"Error parsing {plans_file}: {e}")
 
@@ -248,18 +313,34 @@ def calculate_iter_mode_rmse(it_path, iteration, baseline, prefix=None):
 
     try:
         # Read the gzipped CSV file with ';' as the separator
-        df = pd.read_csv(trips_file, sep=';', compression='gzip')
+        # Use chunking for very large files to reduce memory usage
+        chunk_size = 50000  # Adjust based on available memory
+        mode_counts = {}
+        total_trips = 0
+        
+        for chunk in pd.read_csv(trips_file, sep=';', compression='gzip', chunksize=chunk_size):
+            if 'main_mode' not in chunk.columns:
+                raise ValueError(f"Column 'main_mode' not found in {trips_file}.")
+            
+            # Count modes in this chunk
+            chunk_counts = chunk['main_mode'].value_counts()
+            total_trips += len(chunk)
+            
+            # Accumulate counts
+            for mode, count in chunk_counts.items():
+                mode_counts[mode] = mode_counts.get(mode, 0) + count
+        
+        # Convert to proportions
+        if total_trips > 0:
+            mode_proportions = {mode: count / total_trips for mode, count in mode_counts.items()}
+        else:
+            mode_proportions = {}
+            
     except Exception as e:
         raise ValueError(f"Error reading {trips_file}: {e}")
 
-    if 'main_mode' not in df.columns:
-        raise ValueError(f"Column 'main_mode' not found in {trips_file}.")
-
-    # Calculate the proportion of each mode
-    mode_counts = df['main_mode'].value_counts(normalize=True)
-
     # Compute RMSE against the baseline mode stats
-    squared_errors = [(mode_counts.get(mode, 0) - baseline.get(mode, 0)) ** 2 for mode in baseline.keys()]
+    squared_errors = [(mode_proportions.get(mode, 0) - baseline.get(mode, 0)) ** 2 for mode in baseline.keys()]
     mse = np.mean(squared_errors)
 
     return math.sqrt(mse)
@@ -389,5 +470,4 @@ if __name__ == "__main__":
     parser.add_argument("--reference_modestats", type=str, default=None, help="Path to reference modestats CSV file.")
     args = parser.parse_args()
     main(args.root_directory, baseline=args.reference_modestats, prefix=args.prefix)
-
 
