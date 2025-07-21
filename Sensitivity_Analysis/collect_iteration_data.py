@@ -60,15 +60,7 @@ def get_cached_result(cache_file, compute_func, *args, **kwargs):
     
     return result
 
-def collect_iteration_data(sim_dir, prefix, baseline):
-    iteration_data_file = os.path.join(sim_dir, "iteration_data.csv")
-
-    # Check if iteration_data.csv exists and load processed iterations
-    existing_iterations = set()
-    if os.path.exists(iteration_data_file):
-        existing_data = pd.read_csv(iteration_data_file)
-        existing_iterations = set(existing_data["iteration"].values)
-    
+def collect_iteration_data(sim_dir, prefix, baseline, iteration_range=None):
     # Cache the expensive computations that are done once
     avg_scores = None
     rmse_mode_stats = None
@@ -82,13 +74,36 @@ def collect_iteration_data(sim_dir, prefix, baseline):
         [d for d in os.listdir(iters_dir) if d.startswith("it.")],
         key=lambda x: int(x.split(".")[1])
     )
+    
+    # Filter iteration directories based on the specified range
+    if iteration_range is not None:
+        start_iter, end_iter = iteration_range
+        iteration_dirs = [
+            d for d in iteration_dirs 
+            if start_iter <= int(d.split(".")[1]) <= end_iter
+        ]
+        print(f"Filtering iterations to range [{start_iter}, {end_iter}]: {len(iteration_dirs)} iterations to process")
+    
+    if not iteration_dirs:
+        print("No iterations to process in the specified range.")
+        return pd.DataFrame()
+
+    all_data = []
 
     for it_dir in tqdm(iteration_dirs, desc=f"Processing iterations..."):
         iteration_num = int(it_dir.split(".")[1])
-
-        # Skip if iteration is already processed
-        if iteration_num in existing_iterations:
-            print(f"Iteration {iteration_num} already processed. Skipping.")
+        it_path = os.path.join(iters_dir, it_dir)
+        
+        # Check if iteration data already exists
+        iteration_data_file = os.path.join(it_path, "iteration_metrics.csv")
+        if os.path.exists(iteration_data_file):
+            print(f"Iteration {iteration_num} already processed (found {iteration_data_file}). Skipping.")
+            # Load existing data for final aggregation
+            try:
+                existing_data = pd.read_csv(iteration_data_file)
+                all_data.append(existing_data)
+            except:
+                print(f"Warning: Could not read existing data from {iteration_data_file}")
             continue
 
         # Load expensive computations only when needed (lazy loading with caching)
@@ -96,6 +111,11 @@ def collect_iteration_data(sim_dir, prefix, baseline):
             cache_file = os.path.join(sim_dir, ".cache_scorestats.pkl")
             try:
                 avg_scores = get_cached_result(cache_file, retrieve_all_executed_plan_scores, sim_dir, prefix)
+                # Filter scores to the specified iteration range if needed
+                if iteration_range is not None:
+                    start_iter, end_iter = iteration_range
+                    if isinstance(avg_scores, pd.Series):
+                        avg_scores = avg_scores[(avg_scores.index >= start_iter) & (avg_scores.index <= end_iter)]
             except Exception as e:
                 print(f"Error retrieving executed plan scores: {e}")
                 avg_scores = pd.Series(dtype=float)
@@ -105,6 +125,10 @@ def collect_iteration_data(sim_dir, prefix, baseline):
             try:
                 def compute_rmse_mode_stats():
                     modes_stats = retrieve_all_mode_stats(sim_dir, prefix)
+                    # Filter mode stats to the specified iteration range if needed
+                    if iteration_range is not None:
+                        start_iter, end_iter = iteration_range
+                        modes_stats = modes_stats[(modes_stats.index >= start_iter) & (modes_stats.index <= end_iter)]
                     return calculate_rmse_mode_stats(modes_stats, baseline)
                 rmse_mode_stats = get_cached_result(cache_file, compute_rmse_mode_stats)
             except Exception as e:
@@ -137,7 +161,7 @@ def collect_iteration_data(sim_dir, prefix, baseline):
             rmse_counts = None
 
         try:
-            avg_score = avg_scores.get(iteration_num, None)
+            avg_score = avg_scores.get(iteration_num, None) if avg_scores is not None else None
 
             # If the avg_score isn't found, recompute it
             if avg_score is None:
@@ -147,7 +171,7 @@ def collect_iteration_data(sim_dir, prefix, baseline):
             avg_score = None
 
         # Retrieve the RMSE for the current iteration from the DataFrame
-        if iteration_num in rmse_mode_stats.index:
+        if rmse_mode_stats is not None and iteration_num in rmse_mode_stats.index:
             rmse_mode = rmse_mode_stats.loc[iteration_num, "total_rmse"]
         else:
             # If the rmse_mode isn't found, we'll try and recompute it
@@ -157,7 +181,7 @@ def collect_iteration_data(sim_dir, prefix, baseline):
                 print(f"Error computing RMSE of mode stats for {iteration_num}: {e}")
                 rmse_mode = None
 
-        # Append data for the current iteration
+        # Create data for the current iteration
         iteration_data = {
             "iteration": iteration_num,
             "average_executed_plan_score": avg_score,
@@ -169,17 +193,25 @@ def collect_iteration_data(sim_dir, prefix, baseline):
             "rmse_mode_stats": rmse_mode
         }
 
-        # Write the data to the CSV file
-        new_data = pd.DataFrame([iteration_data])
-        if not os.path.exists(iteration_data_file):
-            new_data.to_csv(iteration_data_file, index=False)
-        else:
-            new_data.to_csv(iteration_data_file, mode='a', header=False, index=False)
-
+        # Write the data to a CSV file in the iteration directory
+        iteration_data_file = os.path.join(it_path, "iteration_metrics.csv")
+        iteration_df = pd.DataFrame([iteration_data])
+        iteration_df.to_csv(iteration_data_file, index=False)
         print(f"Saved data for iteration {iteration_num} to {iteration_data_file}")
+        
+        # Add to aggregation list
+        all_data.append(iteration_df)
 
-    print(f"All iterations processed and saved to {iteration_data_file}")
-    return pd.read_csv(iteration_data_file)
+    # Aggregate all data and save to main directory
+    if all_data:
+        full_df = pd.concat(all_data, ignore_index=True)
+        output_file = os.path.join(sim_dir, "iteration_data.csv")
+        full_df.to_csv(output_file, index=False)
+        print(f"All iterations processed and aggregated data saved to {output_file}")
+        return full_df
+    else:
+        print("No data was processed.")
+        return pd.DataFrame()
 
 def retrieve_all_executed_plan_scores(sub_dir_path, prefix=None):
     """
@@ -424,7 +456,7 @@ def load_reference_modestats(reference_modestats):
             raise ValueError(f"Error reading reference modestats from {reference_modestats}: {e}")
     raise ValueError("reference_modestats must be a dict or a path to a CSV file.")
 
-def main(root_dir, baseline, prefix=None):
+def main(root_dir, baseline, prefix=None, iteration_range=None):
     
     # Load the reference mode stats
     if baseline is None:
@@ -441,7 +473,7 @@ def main(root_dir, baseline, prefix=None):
             continue
 
         try:
-            df = collect_iteration_data(sim_path, prefix=prefix, baseline=baseline)
+            df = collect_iteration_data(sim_path, prefix=prefix, baseline=baseline, iteration_range=iteration_range)
             # Extract the seed number from directory name like "simulation_1"
             try:
                 df["seed"] = int(seed_dir.split("_")[-1])
@@ -468,6 +500,17 @@ if __name__ == "__main__":
     parser.add_argument("root_directory", type=str, help="Path to directory containing subdirectories.")
     parser.add_argument("--prefix", type=str, default=None, help="Optional prefix for output files.")
     parser.add_argument("--reference_modestats", type=str, default=None, help="Path to reference modestats CSV file.")
+    parser.add_argument("--iteration-range", type=int, nargs=2, metavar=('START', 'END'), 
+                        help="Specify iteration range to parse (e.g., --iteration-range 200 300)")
     args = parser.parse_args()
-    main(args.root_directory, baseline=args.reference_modestats, prefix=args.prefix)
+    
+    iteration_range = None
+    if args.iteration_range:
+        start, end = args.iteration_range
+        if start > end:
+            raise ValueError(f"Start iteration ({start}) must be <= end iteration ({end})")
+        iteration_range = (start, end)
+        print(f"Processing iterations in range [{start}, {end}]")
+    
+    main(args.root_directory, baseline=args.reference_modestats, prefix=args.prefix, iteration_range=iteration_range)
 
