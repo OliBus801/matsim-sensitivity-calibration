@@ -309,7 +309,7 @@ def calculate_rmse_mode_stats(modes_stats, baseline):
     
     # Compute the squared error for each mode, per row
     squared_errors = [(modes_stats[mode] - baseline.get(mode, 0)) ** 2 for mode in modes]
-    total_mse = np.sum(squared_errors, axis=0)
+    total_mse = np.mean(squared_errors, axis=0)
     total_rmse = np.sqrt(total_mse)
 
     # Construction of the output DataFrame
