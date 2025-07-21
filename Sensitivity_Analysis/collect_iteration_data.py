@@ -105,7 +105,7 @@ def collect_iteration_data(sim_dir, prefix, baseline):
         else:
             # If the rmse_mode isn't found, we'll try and recompute it
             try:
-                rmse_mode = calculate_iter_mode_rmse(it_path, iteration=it_dir.split(".")[1], prefix=prefix)
+                rmse_mode = calculate_iter_mode_rmse(it_path, iteration=it_dir.split(".")[1], baseline=baseline, prefix=prefix)
             except Exception as e:
                 print(f"Error computing RMSE of mode stats for {iteration_num}: {e}")
                 rmse_mode = None
@@ -229,7 +229,7 @@ def calculate_avg_score(it_path, iteration, prefix=None):
 
     return total_score / count
 
-def calculate_iter_mode_rmse(it_path, iteration, prefix=None, baseline=BASELINE_MODE_STATS):
+def calculate_iter_mode_rmse(it_path, iteration, baseline, prefix=None):
     """
     Calculate the RMSE for mode proportions from the trips CSV file.
 
@@ -318,7 +318,39 @@ def calculate_rmse_mode_stats(modes_stats, baseline):
     })
     return result_df
 
-def main(root_dir, prefix=None, baseline=BERLIN_MODE_STATS):
+def load_reference_modestats(reference_modestats):
+    """
+    Load reference modestats from a CSV file or use a dictionary if provided directly.
+
+    Args:
+        reference_modestats (str): Path to CSV file or a dictionary.
+
+    Returns:
+        dict: Dictionary of mode proportions.
+    """
+    if isinstance(reference_modestats, str) and os.path.isfile(reference_modestats):
+        try:
+            df = pd.read_csv(reference_modestats)
+            # Expect columns: mode, proportion
+            if "mode" in df.columns and "proportion" in df.columns:
+                return dict(zip(df["mode"], df["proportion"]))
+            # Or: first column is mode, second is value
+            elif df.shape[1] >= 2:
+                return dict(zip(df.iloc[:, 0], df.iloc[:, 1]))
+            else:
+                raise ValueError("Reference modestats CSV must have at least two columns (mode, proportion).")
+        except Exception as e:
+            raise ValueError(f"Error reading reference modestats from {reference_modestats}: {e}")
+    raise ValueError("reference_modestats must be a dict or a path to a CSV file.")
+
+def main(root_dir, baseline, prefix=None):
+    
+    # Load the reference mode stats
+    if baseline is None:
+        baseline = BASELINE_MODE_STATS # TODO: Should not accept default mode stats values 
+    else:
+        baseline = load_reference_modestats(baseline)
+    
     all_results = []
 
     for seed_dir in tqdm(sorted(os.listdir(root_dir)), desc="Processing simulations (seeds)"):
@@ -354,8 +386,8 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Aggregate MATSim iteration data across multiple seeds.")
     parser.add_argument("root_directory", type=str, help="Path to directory containing subdirectories.")
     parser.add_argument("--prefix", type=str, default=None, help="Optional prefix for output files.")
-    parser.add_argument("--reference_modestats", type=str, default=BASELINE_MODE_STATS, help="Path to reference modestats CSV file.")
+    parser.add_argument("--reference_modestats", type=str, default=None, help="Path to reference modestats CSV file.")
     args = parser.parse_args()
-    main(args.root_directory, prefix=args.prefix, baseline=args.reference_modestats)
+    main(args.root_directory, baseline=args.reference_modestats, prefix=args.prefix)
 
 
