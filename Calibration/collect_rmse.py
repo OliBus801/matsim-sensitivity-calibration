@@ -74,10 +74,19 @@ def collect_summary_stats(base_dir):
     print(f"\nRésumé global sauvegardé dans : {output_path}")
 
     return summary_df
+    
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("base_directory", type=str, help="Chemin du dossier contenant les méthodes.")
+    parser.add_argument("--single_directory", action="store_true", help="If set, print 'Hello World' and exit.")
     args = parser.parse_args()
 
-    collect_summary_stats(args.base_directory)
+    if args.single_directory:
+        rmse = calculate_counts_rmse(args.base_directory)
+        print(f"RMSE pour le répertoire {args.base_directory}: {rmse}")
+        output_csv = os.path.join(args.base_directory, "counts_rmse.csv")
+        pd.DataFrame([{"rmse": rmse}]).to_csv(output_csv, index=False)
+        print(f"RMSE sauvegardé dans : {output_csv}")
+    else:
+        collect_summary_stats(args.base_directory)
