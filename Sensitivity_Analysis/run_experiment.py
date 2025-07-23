@@ -29,6 +29,7 @@ def main():
     parser.add_argument("output_path", type=pathlib.Path, help="Répertoire de sortie pour les résultats")
     parser.add_argument("--firstIteration", type=int, required=False, default=None, help="Itération de début (optionnel)")
     parser.add_argument("--lastIteration", type=int, required=False, default=None, help="Itération de fin (optionnel)")
+    parser.add_argument("--blockID", type=int, required=False, default=None, help="ID du block (optionnel)")
     args = parser.parse_args()
 
     # --- Lecture du CSV ------------------------------------------------------
@@ -75,8 +76,8 @@ def main():
 
     # Vérification de l'existence de command 
     if command != "":
-        if args.firstIteration is not None and args.lastIteration is not None:
-            print(f"🔧 Itérations personnalisées : {args.firstIteration} à {args.lastIteration}")
+        if args.firstIteration is not None and args.lastIteration is not None and args.blockID is not None:
+            print(f"🔧 Itérations personnalisées : {args.firstIteration} à {args.lastIteration} | block ID : {args.blockID}")
             java_cmd = [
                 "java",
                 "-cp", "matsim-example-project-0.0.1-SNAPSHOT.jar",
@@ -86,7 +87,8 @@ def main():
                 str(args.config_path),            # chemin du config.xml
                 str(args.output_path),         # répertoire de sortie
                 "--firstIteration", str(args.firstIteration),            # itération de début
-                "--lastIteration", str(args.lastIteration)               # itération de fin    
+                "--lastIteration", str(args.lastIteration),               # itération de fin
+                "--blockID", str(args.blockID)                             # block ID
             ]
         else :
             java_cmd = [
