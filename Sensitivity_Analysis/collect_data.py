@@ -15,6 +15,14 @@ BASELINE_MODE_SIOUX_FALLS = {
     "walk": 0.11498632742836762,
 }
 
+BERLIN_MODE_STATS = {
+    "car": 0.2007,
+    "ride": 0.0596,
+    "pt": 0.2651,
+    "bike": 0.1779,
+    "walk": 0.2968
+}
+
 def collect_data_from_directory(directory_path):
     """
     Traverse each subdirectory in the given directory path to collect data.
@@ -55,18 +63,18 @@ def collect_data_from_directory(directory_path):
         }
         # Retrieve average executed plan score
         try:
-            metrics["average_executed_plan_score"] = retrieve_average_executed_plan_score(sub_dir_path)
+            metrics["average_executed_plan_score"] = retrieve_average_executed_plan_score(sub_dir_path, prefix=args.prefix)
         except Exception as e:
             print(f"Error retrieving average_executed_plan_score for {sub_dir}: {e}")
 
         # Retrieve average trip distance and time
         try:
-            metrics["average_trip_distance"], metrics["average_trip_time"] = calculate_average_trip_stat(sub_dir_path)
+            metrics["average_trip_distance"], metrics["average_trip_time"] = calculate_average_trip_stat(sub_dir_path, prefix=args.prefix)
         except Exception as e:
             print(f"Error retrieving average_trip_distance/average_trip_time for {sub_dir}: {e}")
         # Calculate VC ratio stats
         try:
-            vc_stats = calculate_vc_ratio(sub_dir_path)
+            vc_stats = calculate_vc_ratio(sub_dir_path, prefix=args.prefix)
             metrics["average_vc_ratio"] = vc_stats['overall_average_vc']
             metrics["std_dev_vc_ratio"] = vc_stats['overall_std_vc']
         except Exception as e:
@@ -74,19 +82,19 @@ def collect_data_from_directory(directory_path):
 
         # Calculate modal share HHI
         try:
-            metrics["modal_share_hhi"] = calculate_modal_share_hhi(sub_dir_path)
+            metrics["modal_share_hhi"] = calculate_modal_share_hhi(sub_dir_path, prefix=args.prefix)
         except Exception as e:
             print(f"Error calculating modal_share_hhi for {sub_dir}: {e}")
 
         # Calculate counts RMSE
         try:
-            metrics["counts_rmse"] = calculate_counts_rmse(sub_dir_path)
+            metrics["counts_rmse"] = calculate_counts_rmse(sub_dir_path, prefix=args.prefix)
         except Exception as e:
             print(f"Error calculating counts_rmse for {sub_dir}: {e}")
 
         # Calculate RMSE mode stats
         try:
-            metrics["rmse_mode_stats"] = calculate_rmse_mode_stats(sub_dir_path, BASELINE_MODE_SIOUX_FALLS)
+            metrics["rmse_mode_stats"] = calculate_rmse_mode_stats(sub_dir_path, BERLIN_MODE_STATS, prefix=args.prefix)
         except Exception as e:
             print(f"Error calculating rmse_mode_stats for {sub_dir}: {e}")
 
@@ -108,7 +116,98 @@ def collect_data_from_directory(directory_path):
 
     return df
 
-def retrieve_average_executed_plan_score(sub_dir_path):
+def collect_data_from_simulation(simulation_path):
+    """
+    Collect data from a single simulation directory.
+
+    The metrics include:
+    - average_executed_plan_score: Average score of executed plans.
+    - average_trip_distance: Average trip distance.
+    - average_trip_time: Average trip time.
+    - average_vc_ratio: Average volume-to-capacity ratio.
+    - std_dev_vc_ratio: Standard deviation of volume-to-capacity ratio.
+    - modal_share_hhi: Herfindahl–Hirschman Index of modal shares.
+    - counts_rmse: RMSE between MATSim volumes and Count volumes.
+    - rmse_mode_stats: RMSE for mode statistics.
+
+    Args:
+        simulation_path (str): Path to the simulation directory.
+
+    Returns:
+        dict: A dictionary containing collected metrics for the simulation.
+    """
+    print(f"Processing simulation directory: {simulation_path}")
+    
+    # Initialize metrics for the simulation
+    metrics = {
+        "average_executed_plan_score": None,
+        "average_trip_distance": None,
+        "average_trip_time": None,
+        "average_vc_ratio": None,
+        "std_dev_vc_ratio": None,
+        "modal_share_hhi": None,
+        "counts_rmse": None,
+        "rmse_mode_stats": None
+    }
+    
+    # Retrieve average executed plan score
+    try:
+        metrics["average_executed_plan_score"] = retrieve_average_executed_plan_score(simulation_path, prefix=args.prefix)
+        print("✓ Retrieved average executed plan score")
+    except Exception as e:
+        print(f"Error retrieving average_executed_plan_score: {e}")
+
+    # Retrieve average trip distance and time
+    try:
+        metrics["average_trip_distance"], metrics["average_trip_time"] = calculate_average_trip_stat(simulation_path, prefix=args.prefix)
+        print("✓ Retrieved average trip distance and time")
+    except Exception as e:
+        print(f"Error retrieving average_trip_distance/average_trip_time: {e}")
+        
+    # Calculate VC ratio stats
+    try:
+        vc_stats = calculate_vc_ratio(simulation_path, prefix=args.prefix)
+        metrics["average_vc_ratio"] = vc_stats['overall_average_vc']
+        metrics["std_dev_vc_ratio"] = vc_stats['overall_std_vc']
+        print("✓ Calculated VC ratio statistics")
+    except Exception as e:
+        print(f"Error calculating VC ratio stats: {e}")
+
+    # Calculate modal share HHI
+    try:
+        metrics["modal_share_hhi"] = calculate_modal_share_hhi(simulation_path, prefix=args.prefix)
+        print("✓ Calculated modal share HHI")
+    except Exception as e:
+        print(f"Error calculating modal_share_hhi: {e}")
+
+    # Calculate counts RMSE
+    try:
+        metrics["counts_rmse"] = calculate_counts_rmse(simulation_path, prefix=args.prefix)
+        print("✓ Calculated counts RMSE")
+    except Exception as e:
+        print(f"Error calculating counts_rmse: {e}")
+
+    # Calculate RMSE mode stats
+    try:
+        metrics["rmse_mode_stats"] = calculate_rmse_mode_stats(simulation_path, BERLIN_MODE_STATS, prefix=args.prefix)
+        print("✓ Calculated RMSE mode statistics")
+    except Exception as e:
+        print(f"Error calculating rmse_mode_stats: {e}")
+
+    # Create a DataFrame with the single simulation data
+    df = pd.DataFrame([metrics])
+    df.index = [os.path.basename(simulation_path)]
+    df.index.name = 'Simulation'
+
+    # Save to CSV file
+    output_file = os.path.join(simulation_path, 'simulation_data.csv')
+    df.to_csv(output_file)
+    print(f"Simulation data saved to {output_file}")
+    print("---------------------------------------")
+
+    return metrics
+
+def retrieve_average_executed_plan_score(sub_dir_path, prefix=None):
     """
     Function to retrieve the average executed plan score from the subdirectory.
     The information is in file scorestats.csv under column 'avg_executed'.
@@ -121,7 +220,7 @@ def retrieve_average_executed_plan_score(sub_dir_path):
     """
 
     # Define the path to the scorestats.csv file
-    filename = args.suffix + "scorestats.csv"
+    filename = f"{prefix}.scorestats.csv" if prefix is not None else "scorestats.csv"
     scorestats_file = os.path.join(sub_dir_path, filename)
 
     # Check if the file exists
@@ -192,7 +291,7 @@ def calculate_average_trip_stat(sub_dir_path, iteration=None, prefix=None):
 
     return average_trip_distance, average_trip_time
 
-def calculate_counts_rmse(sub_dir_path):
+def calculate_counts_rmse(sub_dir_path, prefix=None):
     """
     Calculates the RMSE between MATSim volumes and Count volumes
     from the countscompare.txt file.
@@ -216,7 +315,7 @@ def calculate_counts_rmse(sub_dir_path):
 
     # Strip 'it.' from last_it to get the iteration number
     it_number = last_it.replace('it.', '')
-    countscompare_path = os.path.join(last_it_dir, f"{it_number}.countscompare.txt")
+    countscompare_path = os.path.join(last_it_dir, f"{prefix}.{it_number}.countscompare.txt" if prefix is not None else f"{it_number}.countscompare.txt")
 
     if not os.path.exists(countscompare_path):
         raise FileNotFoundError(f"File {countscompare_path} not found.")
@@ -230,7 +329,7 @@ def calculate_counts_rmse(sub_dir_path):
 
     return math.sqrt(mse)
 
-def calculate_rmse_mode_stats(sub_dir_path, baseline):
+def calculate_rmse_mode_stats(sub_dir_path, baseline, prefix=None):
     """
     Calculate the RMSE for mode statistics for the last iteration in the simulation.
 
@@ -241,7 +340,7 @@ def calculate_rmse_mode_stats(sub_dir_path, baseline):
         float: The RMSE value.
     """
     # Define the path to the modestats.csv file
-    modestats_file = os.path.join(sub_dir_path, "modestats.csv")
+    modestats_file = os.path.join(sub_dir_path, f"{prefix}.modestats.csv" if prefix is not None else "modestats.csv")
     modestats_df = pd.read_csv(modestats_file, sep=';')
 
     modes = [col for col in modestats_df.columns if col != "iteration"]
@@ -255,7 +354,7 @@ def calculate_rmse_mode_stats(sub_dir_path, baseline):
 
     return total_rmse
 
-def calculate_modal_share_hhi(sub_dir_path):
+def calculate_modal_share_hhi(sub_dir_path, prefix=None):
     """
     Calculates the Herfindahl–Hirschman Index (HHI) of modal shares from the MATSim modestats.csv file.
     The HHI is computed as the sum of squared modal shares from the last available iteration.
@@ -266,7 +365,7 @@ def calculate_modal_share_hhi(sub_dir_path):
     Returns:
         float: Herfindahl–Hirschman Index (HHI), ranging from 1/n (maximum diversity) to 1 (single dominant mode).
     """
-    filename = args.suffix + "modestats.csv"
+    filename = f"{prefix}.modestats.csv" if prefix is not None else "modestats.csv"
     modal_share_file = os.path.join(sub_dir_path, filename)
 
     if not os.path.exists(modal_share_file):
@@ -400,7 +499,7 @@ def load_link_capacities(sub_dir_path, iteration=None, prefix=None):
         # Go two parents up to find the output_links.csv.gz file
         links_file = os.path.join(os.path.dirname(os.path.dirname(sub_dir_path)), f'{prefix}.output_links.csv.gz' if prefix is not None else 'output_links.csv.gz')
     else:
-        links_file = os.path.join(sub_dir_path, 'output_links.csv.gz')
+        links_file = os.path.join(sub_dir_path, f'{prefix}.output_links.csv.gz' if prefix is not None else 'output_links.csv.gz')
     
     desired_dtypes = {
         'link': str,
@@ -473,15 +572,19 @@ def calculate_vc_ratio(sub_dir_path, time_bin_size=3600, iteration=None, prefix=
 if __name__ == "__main__":
 
     # Set up argument parser
-    parser = argparse.ArgumentParser(description="Collect data from a directory containing MATSim simulation results.")
-    parser.add_argument("directory_path", type=str, help="Path to the main directory containing simulation subdirectories.")
-    parser.add_argument("--suffix", type=str, default="", help="Optional suffix to add to the output file names.")
+    parser = argparse.ArgumentParser(description="Collect data from MATSim simulation results.")
+    parser.add_argument("directory_path", type=str, help="Path to the directory containing simulation results.")
+    parser.add_argument("--prefix", type=str, default=None, help="Optional prefix to add to the output file names.")
+    parser.add_argument("--single", action="store_true", help="Process a single simulation directory instead of multiple subdirectories.")
 
     # Parse arguments
     args = parser.parse_args()
 
-    # Call the function with the provided directory path
-    collect_data_from_directory(args.directory_path)
+    # Call the appropriate function based on the mode
+    if args.single:
+        collect_data_from_simulation(args.directory_path)
+    else:
+        collect_data_from_directory(args.directory_path)
 
 
 
