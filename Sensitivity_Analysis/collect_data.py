@@ -74,7 +74,7 @@ def collect_data_from_directory(directory_path):
             print(f"Error retrieving average_trip_distance/average_trip_time for {sub_dir}: {e}")
         # Calculate VC ratio stats
         try:
-            vc_stats = calculate_vc_ratio(sub_dir_path, prefix=args.prefix)
+            vc_stats = calculate_vc_ratio(sub_dir_path, prefix=args.prefix, scaling_factor=args.scaling_factor)
             metrics["average_vc_ratio"] = vc_stats['overall_average_vc']
             metrics["std_dev_vc_ratio"] = vc_stats['overall_std_vc']
         except Exception as e:
@@ -166,7 +166,7 @@ def collect_data_from_simulation(simulation_path):
         
     # Calculate VC ratio stats
     try:
-        vc_stats = calculate_vc_ratio(simulation_path, prefix=args.prefix)
+        vc_stats = calculate_vc_ratio(simulation_path, prefix=args.prefix, scaling_factor=args.scaling_factor)
         metrics["average_vc_ratio"] = vc_stats['overall_average_vc']
         metrics["std_dev_vc_ratio"] = vc_stats['overall_std_vc']
         print("✓ Calculated VC ratio statistics")
@@ -600,6 +600,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Collect data from MATSim simulation results.")
     parser.add_argument("directory_path", type=str, help="Path to the directory containing simulation results.")
     parser.add_argument("--prefix", type=str, default=None, help="Optional prefix to add to the output file names.")
+    parser.add_argument("--scaling_factor", type=float, default=1.0, help="Scaling factor for link capacities.")
     parser.add_argument("--single", action="store_true", help="Process a single simulation directory instead of multiple subdirectories.")
 
     # Parse arguments
