@@ -501,7 +501,13 @@ def load_link_capacities(sub_dir_path, iteration=None, prefix=None, scaling_fact
         return max(iterations) if iterations else None
 
     # Déterminer les chemins
-    root_dir = os.path.abspath(os.path.join(sub_dir_path, "..", ".."))
+    # Si sub_dir_path termine par 'it.<number>', alors root_dir = sub_dir_path/../..
+    # Sinon, root_dir = sub_dir_path
+    base_name = os.path.basename(os.path.normpath(sub_dir_path))
+    if base_name.startswith("it.") and base_name[3:].isdigit():
+        root_dir = os.path.abspath(os.path.join(sub_dir_path, "..", ".."))
+    else:
+        root_dir = os.path.abspath(sub_dir_path)
     iters_dir = os.path.abspath(os.path.join(root_dir, "ITERS"))
 
     if iteration is None:
