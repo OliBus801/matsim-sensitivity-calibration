@@ -514,7 +514,16 @@ def load_link_capacities(sub_dir_path, iteration=None, prefix=None, scaling_fact
 
     if os.path.exists(output_links_path):
         # ✅ Lecture depuis output_links.csv.gz
-        df = pd.read_csv(output_links_path, sep=";", dtype={"link": str})
+        df = pd.read_csv(
+            output_links_path,
+            sep=";",
+            dtype={
+                "link": str,
+                "from_node": str,
+                "to_node": str,
+                "type": str,
+            }
+        )
         df = df[["link", "capacity"]].dropna()
         df["capacity"] = df["capacity"].astype(float) * scaling_factor
         return df.set_index("link")["capacity"].to_dict()
@@ -538,16 +547,9 @@ def calculate_vc_ratio(sub_dir_path, time_bin_size=3600, iteration=None, prefix=
     link_volumes_file = os.path.join(sub_dir_path, "link_volumes.csv")
 
     if os.path.exists(link_volumes_file):
-        # Parse the existing link_volumes.csv file
-        link_volumes = defaultdict(lambda: defaultdict(int))
-        with open(link_volumes_file, 'r') as csvfile:
-            reader = csv.reader(csvfile)
-            header = next(reader)
-            time_bins = header[1:]  # Skip the 'link_id' column
-            for row in reader:
-                link_id = row[0]
-                for i, volume in enumerate(row[1:]):
-                    link_volumes[link_id][int(time_bins[i].split('_')[-1])] = int(volume)
+        df = pd.read_csv(link_volumes_file)
+        df = df.set_index("link_id")
+        link_volumes = df.to_dict(orient="index")  # dict[link_id][bin_name] = volume
     else:
         # Call parse_events to generate link_volumes
         link_volumes = parse_events(sub_dir_path, time_bin_size, iteration=iteration, prefix=prefix)
