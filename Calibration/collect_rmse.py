@@ -1,21 +1,23 @@
 import os
 import pandas as pd
 import numpy as np
-import math
 import tqdm
 import argparse
 
-def calculate_counts_rmse(sim_path):
-    iters_dir = os.path.join(sim_path, 'ITERS')
-    it_folders = [d for d in os.listdir(iters_dir) if d.startswith('it.')]
-    last_it = max(it_folders, key=lambda x: int(x.split('.')[-1]))
-    it_number = last_it.replace('it.', '')
-    countscompare_path = os.path.join(iters_dir, last_it, f"{it_number}.countscompare.txt")
-
-    df = pd.read_csv(countscompare_path, sep='\t', engine='python')
-    diff = df['MATSIM volumes'] - df['Count volumes']
-    mse = np.mean(diff ** 2)
-    return math.sqrt(mse)
+def get_counts_rmse_from_simulation_data(sim_path):
+    simulation_data_path = os.path.join(sim_path, 'simulation_data.csv')
+    
+    if not os.path.exists(simulation_data_path):
+        raise FileNotFoundError(f"Le fichier simulation_data.csv n'existe pas dans {sim_path}")
+    
+    df = pd.read_csv(simulation_data_path)
+    
+    if 'counts_rmse' not in df.columns:
+        raise ValueError(f"La colonne 'counts_rmse' n'existe pas dans {simulation_data_path}")
+    
+    # Prendre la dernière valeur de counts_rmse (généralement la plus récente)
+    rmse = df['counts_rmse'].iloc[-1]
+    return rmse
 
 def collect_best_rmse_per_seed(seed_dir):
     sub_dirs = next(os.walk(seed_dir))[1]
@@ -24,7 +26,7 @@ def collect_best_rmse_per_seed(seed_dir):
     for sim_dir in sub_dirs:
         sim_path = os.path.join(seed_dir, sim_dir)
         try:
-            rmse = calculate_counts_rmse(sim_path)
+            rmse = get_counts_rmse_from_simulation_data(sim_path)
             rmses.append(rmse)
         except Exception as e:
             print(f"Erreur dans {sim_dir} ({seed_dir}): {e}")
@@ -83,7 +85,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     if args.single_directory:
-        rmse = calculate_counts_rmse(args.base_directory)
+        rmse = get_counts_rmse_from_simulation_data(args.base_directory)
         print(f"RMSE pour le répertoire {args.base_directory}: {rmse}")
         output_csv = os.path.join(args.base_directory, "counts_rmse.csv")
         pd.DataFrame([{"rmse": rmse}]).to_csv(output_csv, index=False)
