@@ -114,7 +114,7 @@ def loo_cv(train_x, train_y, lr=0.1, n_iter=50):
 
 def run_loo_experiments(X, Y, y_columns,
                     seeds=[42, 24, 44],
-                    sizes=[30, 60, 120, 240, 360, 480, 600],
+                    sizes=[450],
                     output_path="gp_results.csv"):
     """
     Runs experiments by performing leave-one-out cross-validation (LOO-CV) on subsets of the data for different target variables, sample sizes, and random seeds.
