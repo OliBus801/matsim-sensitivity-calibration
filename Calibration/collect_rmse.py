@@ -3,6 +3,7 @@ import pandas as pd
 import numpy as np
 import tqdm
 import argparse
+import re
 
 def get_counts_rmse_from_simulation_data(sim_path):
     simulation_data_path = os.path.join(sim_path, 'simulation_data.csv')
@@ -60,10 +61,17 @@ def collect_summary_stats(base_dir):
             "mean_rmse": method_df["best_rmse"].mean(),
             "std_rmse": method_df["best_rmse"].std()
         }
+        # Réordonner selon l'ordre numérique des seeds
+        def seed_sort_key(seed):
+            match = re.search(r'\d+', str(seed))
+            return int(match.group()) if match else float('inf')
+
+        method_df = method_df.sort_index(key=lambda idx: [seed_sort_key(s) for s in idx])
         method_df.to_csv(os.path.join(method_path, f"best_rmse_{method}.csv"))
         print(f"\nStatistiques pour {method} sauvegardées dans : {os.path.join(method_path, f'best_rmse_{method}.csv')}")
 
         summary[method] = {
+            "min_best_rmse": method_df.loc["best", "best_rmse"],
             "mean_best_rmse": method_df.loc["best", "mean_rmse"],
             "std_best_rmse": method_df.loc["best", "std_rmse"]
         }
