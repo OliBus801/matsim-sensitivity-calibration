@@ -74,7 +74,7 @@ def collect_data_from_directory(directory_path):
             print(f"Error retrieving average_trip_distance/average_trip_time for {sub_dir}: {e}")
         # Calculate VC ratio stats
         try:
-            vc_stats = calculate_vc_ratio(sub_dir_path, prefix=args.prefix)
+            vc_stats = calculate_vc_ratio(sub_dir_path, prefix=args.prefix, scaling_factor=args.scaling_factor)
             metrics["average_vc_ratio"] = vc_stats['overall_average_vc']
             metrics["std_dev_vc_ratio"] = vc_stats['overall_std_vc']
         except Exception as e:
@@ -166,7 +166,7 @@ def collect_data_from_simulation(simulation_path):
         
     # Calculate VC ratio stats
     try:
-        vc_stats = calculate_vc_ratio(simulation_path, prefix=args.prefix)
+        vc_stats = calculate_vc_ratio(simulation_path, prefix=args.prefix, scaling_factor=args.scaling_factor)
         metrics["average_vc_ratio"] = vc_stats['overall_average_vc']
         metrics["std_dev_vc_ratio"] = vc_stats['overall_std_vc']
         print("✓ Calculated VC ratio statistics")
@@ -480,62 +480,87 @@ def save_link_volumes_to_csv(link_volumes, link_ids, num_bins, output_file):
             row = [link_id] + [volumes.get(bin_idx, 0) for bin_idx in range(num_bins)]
             writer.writerow(row)
 
-def load_link_capacities(sub_dir_path, iteration=None, prefix=None):
+def load_link_capacities(sub_dir_path, iteration=None, prefix=None, scaling_factor=1.0):
     """
-    Loads link capacities from a CSV file and returns them as a dictionary.
-
-    The function reads the CSV file, converts the 'link' column to strings and the 
-    'capacity' column to floats, and then creates a dictionary where the keys are 
-    the link identifiers and the values are the capacities.
+    Loads link capacities from either output_links.csv.gz or the fallback linkstats file.
 
     Args:
-        sub_dir_path (str): Path to the subdirectory containing the links file.
+        sub_dir_path (str): Path to the ITERS/it.X directory.
+        iteration (int, optional): Iteration number. If None, the latest iteration is used.
+        prefix (str, optional): File prefix (e.g. 'berlin-v6.0').
+        scaling_factor (float): Factor to scale down capacities (e.g., 0.01 for 1%).
+
 
     Returns:
-        dict: A dictionary where the keys are link identifiers (str) and the values 
-              are their respective capacities (float).
+        dict: A dictionary {link_id (str): capacity (float)}
     """
-    if iteration:
-        # Go two parents up to find the output_links.csv.gz file
-        links_file = os.path.join(os.path.dirname(os.path.dirname(sub_dir_path)), f'{prefix}.output_links.csv.gz' if prefix is not None else 'output_links.csv.gz')
+    def find_latest_iteration(iters_path):
+        # Ex: finds it.0, it.10, it.100 → returns 100
+        dirs = [d for d in os.listdir(iters_path) if d.startswith("it.")]
+        iterations = [int(d.split(".")[1]) for d in dirs if d.split(".")[1].isdigit()]
+        return max(iterations) if iterations else None
+
+    # Déterminer les chemins
+    # Si sub_dir_path termine par 'it.<number>', alors root_dir = sub_dir_path/../..
+    # Sinon, root_dir = sub_dir_path
+    base_name = os.path.basename(os.path.normpath(sub_dir_path))
+    if base_name.startswith("it.") and base_name[3:].isdigit():
+        root_dir = os.path.abspath(os.path.join(sub_dir_path, "..", ".."))
     else:
-        links_file = os.path.join(sub_dir_path, f'{prefix}.output_links.csv.gz' if prefix is not None else 'output_links.csv.gz')
-    
-    desired_dtypes = {
-        'link': str,
-        'from_node': str,
-        'to_node': str,
-        'type': str
-    }
+        root_dir = os.path.abspath(sub_dir_path)
+    iters_dir = os.path.abspath(os.path.join(root_dir, "ITERS"))
 
-    header = pd.read_csv(links_file, sep=';', nrows=0).columns
+    if iteration is None:
+        iteration = find_latest_iteration(iters_dir)
+        if iteration is None:
+            raise FileNotFoundError(f"Aucune itération trouvée dans {iters_dir}")
 
-    actual_dtypes = {col: typ for col, typ in desired_dtypes.items() if col in header}
+    output_links_name = f"{prefix}.output_links.csv.gz" if prefix else "output_links.csv.gz"
+    output_links_path = os.path.join(root_dir, output_links_name)
 
-    df = pd.read_csv(links_file, sep=';', na_values=["", "null"], dtype=actual_dtypes)
-    df['link'] = df['link'].astype(str)
-    df['capacity'] = df['capacity'].astype(float)
-    return df.set_index('link')['capacity'].to_dict()
+    if os.path.exists(output_links_path):
+        # ✅ Lecture depuis output_links.csv.gz
+        df = pd.read_csv(
+            output_links_path,
+            sep=";",
+            dtype={
+                "link": str,
+                "from_node": str,
+                "to_node": str,
+                "type": str,
+            }
+        )
+        df = df[["link", "capacity"]].dropna()
+        df["capacity"] = df["capacity"].astype(float) * scaling_factor
+        return df.set_index("link")["capacity"].to_dict()
 
-def calculate_vc_ratio(sub_dir_path, time_bin_size=3600, iteration=None, prefix=None):
+    else:
+        # 🔁 Fallback: lecture depuis linkstats
+        stats_name = f"{prefix}.{iteration}.linkstats.txt.gz" if prefix else f"{iteration}.linkstats.txt.gz"
+        stats_path = os.path.join(iters_dir, f"it.{iteration}", stats_name)
+
+        if not os.path.exists(stats_path):
+            raise FileNotFoundError(f"Fichier introuvable : {output_links_path} ni {stats_path}")
+
+        with gzip.open(stats_path, "rt") as f:
+            df = pd.read_csv(f, sep="\t", dtype={"LINK": str}, usecols=["LINK", "CAPACITY"])
+
+        df = df.dropna(subset=["CAPACITY"])
+        df["CAPACITY"] = df["CAPACITY"].astype(float) * scaling_factor
+        return df.set_index("LINK")["CAPACITY"].to_dict()
+
+def calculate_vc_ratio(sub_dir_path, time_bin_size=3600, iteration=None, prefix=None, scaling_factor=1.0):
     link_volumes_file = os.path.join(sub_dir_path, "link_volumes.csv")
 
     if os.path.exists(link_volumes_file):
-        # Parse the existing link_volumes.csv file
-        link_volumes = defaultdict(lambda: defaultdict(int))
-        with open(link_volumes_file, 'r') as csvfile:
-            reader = csv.reader(csvfile)
-            header = next(reader)
-            time_bins = header[1:]  # Skip the 'link_id' column
-            for row in reader:
-                link_id = row[0]
-                for i, volume in enumerate(row[1:]):
-                    link_volumes[link_id][int(time_bins[i].split('_')[-1])] = int(volume)
+        df = pd.read_csv(link_volumes_file)
+        df = df.set_index("link_id")
+        link_volumes = df.to_dict(orient="index")  # dict[link_id][bin_name] = volume
     else:
         # Call parse_events to generate link_volumes
         link_volumes = parse_events(sub_dir_path, time_bin_size, iteration=iteration, prefix=prefix)
 
-    link_capacities = load_link_capacities(sub_dir_path, iteration=iteration, prefix=prefix)
+    link_capacities = load_link_capacities(sub_dir_path, iteration=iteration, prefix=prefix, scaling_factor=scaling_factor)
 
     vc_ratios = defaultdict(dict)
     time_bin_totals = defaultdict(list)
@@ -575,6 +600,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Collect data from MATSim simulation results.")
     parser.add_argument("directory_path", type=str, help="Path to the directory containing simulation results.")
     parser.add_argument("--prefix", type=str, default=None, help="Optional prefix to add to the output file names.")
+    parser.add_argument("--scaling_factor", type=float, default=1.0, help="Scaling factor for link capacities.")
     parser.add_argument("--single", action="store_true", help="Process a single simulation directory instead of multiple subdirectories.")
 
     # Parse arguments
