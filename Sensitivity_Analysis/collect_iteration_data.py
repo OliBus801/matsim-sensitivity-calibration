@@ -134,6 +134,21 @@ def collect_iteration_data(sim_dir, prefix, baseline, iteration_range=None):
             except Exception as e:
                 print(f"Error retrieving or calculating RMSE mode stats: {e}")
                 rmse_mode_stats = pd.Series(dtype=float)
+        
+        if modal_share_hhi_stats is None:
+            cache_file = os.path.join(sim_dir, ".cache_modal_share_hhi.pkl")
+            try:
+                def compute_modal_share_hhi_stats():
+                    modes_stats = retrieve_all_mode_stats(sim_dir, prefix)
+                    # Filter mode stats to the specified iteration range if needed
+                    if iteration_range is not None:
+                        start_iter, end_iter = iteration_range
+                        modes_stats = modes_stats[(modes_stats.index >= start_iter) & (modes_stats.index <= end_iter)]
+                    return calculate_modal_share_hhi_stats(modes_stats)
+                modal_share_hhi_stats = get_cached_result(cache_file, compute_modal_share_hhi_stats)
+            except Exception as e:
+                print(f"Error retrieving or calculating modal share HHI stats: {e}")
+                modal_share_hhi_stats = pd.Series(dtype=float)
 
         it_path = os.path.join(iters_dir, it_dir)
 
@@ -180,6 +195,12 @@ def collect_iteration_data(sim_dir, prefix, baseline, iteration_range=None):
             except Exception as e:
                 print(f"Error computing RMSE of mode stats for {iteration_num}: {e}")
                 rmse_mode = None
+        
+        # Retrieve the Modal Share HHI for the current iteration from the Series
+        if modal_share_hhi_stats is not None and iteration_num in modal_share_hhi_stats.index:
+            modal_share_hhi = modal_share_hhi_stats.loc[iteration_num]
+        else:
+            modal_share_hhi = None
 
         # Create data for the current iteration
         iteration_data = {
@@ -431,6 +452,20 @@ def calculate_rmse_mode_stats(modes_stats, baseline):
     })
     return result_df
 
+def calculate_modal_share_hhi_stats(modes_stats):
+    """
+    Calculate the Modal Share HHI (Herfindahl-Hirschman Index) for mode statistics for all iterations in the DataFrame.
+
+    Args:
+        modes_stats (pd.DataFrame): DataFrame with mode stats for each iteration.
+
+    Returns:
+        pd.Series: Series with HHI values for each iteration.
+    """
+    # Compute the HHI for each iteration
+    hhi_values = modes_stats.drop(columns=["iteration"]).apply(lambda x: (x ** 2).sum(), axis=1)
+    return hhi_values
+
 def load_reference_modestats(reference_modestats):
     """
     Load reference modestats from a CSV file or use a dictionary if provided directly.
@@ -466,32 +501,17 @@ def main(root_dir, baseline, prefix=None, iteration_range=None):
     
     all_results = []
 
-    for seed_dir in tqdm(sorted(os.listdir(root_dir)), desc="Processing simulations (seeds)"):
-        sim_path = os.path.join(root_dir, seed_dir)
-        if not os.path.isdir(sim_path):
-            print(f"Skipping {sim_path}, not a directory.")
-            continue
-
+    if not os.path.isdir(root_dir):
+        raise NotADirectoryError(f"{root_dir} is not a valid directory.")
+    
+    try:
+        df = collect_iteration_data(root_dir, prefix=prefix, baseline=baseline, iteration_range=iteration_range)
         try:
-            df = collect_iteration_data(sim_path, prefix=prefix, baseline=baseline, iteration_range=iteration_range)
-            # Extract the seed number from directory name like "simulation_1"
-            try:
-                df["seed"] = int(seed_dir.split("_")[-1])
-            except Exception:
-                df["seed"] = seed_dir  # fallback to directory name if parsing fails
-
-            all_results.append(df)
-        except Exception as e:
-            print(f"Failed to process {seed_dir}: {e}")
-
-    if not all_results:
-        print("No data collected.")
-        return
-
-    full_df = pd.concat(all_results, ignore_index=True)
-    output_path = os.path.join(root_dir, "all_iterations_metrics.csv")
-    full_df.to_csv(output_path, index=False)
-    print(f"Saved aggregated results to {output_path}")
+            df["seed"] = int(seed_dir.split("_")[-1])
+        except Exception:
+            df["seed"] = seed_dir  # fallback to directory name if parsing fails
+    except Exception as e:
+        print(f"Failed to process {root_dir}: {e}")
 
 
 
