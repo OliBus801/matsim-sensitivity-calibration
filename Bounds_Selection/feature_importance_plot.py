@@ -61,7 +61,7 @@ for ax, (name, paths) in zip(axes, scenarios.items()):
     )
     
     ax.set_title(name, fontsize=10, fontweight="bold")
-    ax.set_xticklabels(feature_names[sorted_idx], rotation=45, ha="right", fontsize=6, fontweight="bold")
+    ax.set_xticklabels(feature_names[sorted_idx], rotation=45, ha="right", fontsize=8, fontweight="bold")
     ax.set_xlabel("")
     ax.set_ylabel("Importance" if ax == axes[0] else "")
     ax.set_ylim(0.00, 0.42)
