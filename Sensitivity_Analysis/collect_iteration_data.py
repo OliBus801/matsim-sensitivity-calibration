@@ -64,6 +64,7 @@ def collect_iteration_data(sim_dir, prefix, baseline, iteration_range=None):
     # Cache the expensive computations that are done once
     avg_scores = None
     rmse_mode_stats = None
+    modal_share_hhi_stats = None
 
     # Iterate through the ITERS directory to collect data for each iteration
     iters_dir = os.path.join(sim_dir, "ITERS")
@@ -210,6 +211,7 @@ def collect_iteration_data(sim_dir, prefix, baseline, iteration_range=None):
             "average_trip_time": avg_time,
             "average_vc_ratio": avg_vc,
             "std_dev_vc_ratio": std_vc,
+            "modal_share_hhi": modal_share_hhi,
             "counts_rmse": rmse_counts,
             "rmse_mode_stats": rmse_mode
         }
@@ -463,7 +465,8 @@ def calculate_modal_share_hhi_stats(modes_stats):
         pd.Series: Series with HHI values for each iteration.
     """
     # Compute the HHI for each iteration
-    hhi_values = modes_stats.drop(columns=["iteration"]).apply(lambda x: (x ** 2).sum(), axis=1)
+    hhi_values = modes_stats.apply(lambda x: (x ** 2).sum(), axis=1)
+    print(hhi_values.head())
     return hhi_values
 
 def load_reference_modestats(reference_modestats):
