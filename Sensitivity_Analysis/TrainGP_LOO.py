@@ -206,8 +206,8 @@ if __name__ == "__main__":
                         help='Random seed for reproducibility (default: 42).')
     parser.add_argument('--lr', type=float, default=0.1,
                         help='Learning rate for GP training (default: 0.1).')
-    parser.add_argument('--n_iter', type=int, default=50,
-                        help='Number of training iterations for GP (default: 50).')
+    parser.add_argument('--n_iter', type=int, default=100,
+                        help='Number of training iterations for GP (default: 100).')
     
     args = parser.parse_args()
 
