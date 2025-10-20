@@ -159,13 +159,10 @@ def run_loo_experiments(X, Y, y_columns, seed, lr, n_iter, output_path):
     # Set random seed for reproducibility
     torch.manual_seed(seed)
     
-    # Si le fichier existe déjà, on le supprime pour repartir à zéro
-    if os.path.exists(output_path):
-        os.remove(output_path)
-
-    # Initialisation du CSV (écriture de l'en-tête)
-    pd.DataFrame(columns=["target", "n_samples", "seed", "RMSE", "R2"]) \
-      .to_csv(output_path, index=False)
+    # Si le fichier existe déjà, on append notre résultat, sinon on crée un nouveau fichier
+    if not os.path.exists(output_path):
+        pd.DataFrame(columns=["target", "n_samples", "seed", "RMSE", "R2"]) \
+            .to_csv(output_path, index=False)
 
     n_samples = X.size(0)
     print(f"\nRunning LOO-CV on full dataset with {n_samples} samples")
