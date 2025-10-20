@@ -111,17 +111,17 @@ def random_search_naive(bounds, n_samples):
     return pd.DataFrame(result)
 
 # List of seeds
-seeds = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+seeds = [11, 12, 13, 14, 15, 16, 17, 18, 19, 20]
 
 for seed in seeds:
     np.random.seed(seed)
-    #RS_naive = random_search_naive(original_param_bounds, total_samples)
-    #RS_refined_naive = random_search_naive(refined_param_bounds, total_samples)
-    #RS_Morris_sigma = random_search_naive(param_bounds_morris_sigma, total_samples)
+    RS_naive = random_search_naive(original_param_bounds, total_samples)
+    RS_refined_naive = random_search_naive(refined_param_bounds, total_samples)
+    RS_Morris_sigma = random_search_naive(param_bounds_morris_sigma, total_samples)
     RS_Sobol_st = random_search_naive(param_bounds_sobol_st, total_samples)
     outdir = f"Calibration/cache/Berlin"
     os.makedirs(outdir, exist_ok=True)
-    #RS_naive.to_csv(f"{outdir}/RS_naive_samples_seed{seed}.csv", index=False)
-    #RS_refined_naive.to_csv(f"{outdir}/RS_refined_naive_samples_seed{seed}.csv", index=False)
-    #RS_Morris_sigma.to_csv(f"{outdir}/RS_Morris_sigma_samples_seed{seed}.csv", index=False)
+    RS_naive.to_csv(f"{outdir}/RS_naive_samples_seed{seed}.csv", index=False)
+    RS_refined_naive.to_csv(f"{outdir}/RS_refined_naive_samples_seed{seed}.csv", index=False)
+    RS_Morris_sigma.to_csv(f"{outdir}/RS_Morris_sigma_samples_seed{seed}.csv", index=False)
     RS_Sobol_st.to_csv(f"{outdir}/RS_Sobol_st_samples_seed{seed}.csv", index=False)
