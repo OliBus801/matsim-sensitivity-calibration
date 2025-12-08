@@ -140,8 +140,42 @@ BERLIN_CONSTRAINED = {
                 ]
 }
 
+BERLIN_SOBOL = {
+    "num_vars": 6,
+    "names": [
+        'ASC_car',
+        'ASC_bike',
+        'ASC_ride',
+        'performing_util',
+        'money_util',
+        'SubtourModeChoice',
+        ],
+    "bounds": [
+        [-1, 3],        #'ASC_car',
+        [-1, 3],        #'ASC_bike',
+        [0, 3],         #'ASC_ride',
+        [0, 12],        #'performing_util',
+        [0.46, 1.59],   #'money_util',
+        [0, 1],         #'SubtourModeChoice',
+                ]
+}
+
 BERLIN_DEFAULT_VALUES = {
     'ASC_walk': 0.0,
+    'ASC_car': 1.5,
+    'ASC_pt': 1.5,
+    'ASC_bike': 1.5,
+    'ASC_ride': 1.5,
+    'ASC_freight': 1.5,
+    'waitingPt_util': 0,
+    'lateArrival_util': -18,
+    'earlyDeparture_util': 0,
+    'money_util': 1,
+    'TimeAllocationMutator': 0.1,
+    'ReRoute': 0.1,
+    'SubtourModeChoice': 0.1,
+    'ChangeExpBeta': 0.7,
+    'mutationRange': 1800,
     'maxAgentPlanMemorySize': 5,
     'timeStepSize': 1,
     'numberOfIterations': 200

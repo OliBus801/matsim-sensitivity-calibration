@@ -76,13 +76,13 @@ def lhs_samples(problem, n_samples, default_values, out_csv, seed=None,
         df_samples = round_integer_columns(df_samples, integer_columns)
         print(f"  Rounded integer columns: {integer_columns}")
 
+    # Add default values for columns not in the problem definition
+    df_samples = add_default_values(df_samples, default_values)
+
     # Normalize replanning strategy columns
     if normalize_replanning:
         df_samples = normalize_replanning_columns(df_samples)
         print(f"  Normalized replanning strategy columns")
-
-    # Add default values for columns not in the problem definition
-    df_samples = add_default_values(df_samples, default_values)
 
     # Create output directory if it doesn't exist
     os.makedirs(os.path.dirname(out_csv), exist_ok=True)
@@ -104,7 +104,8 @@ def generate_lhs_samples(
     round_decimals=5
 ):
         # Calculate total number of samples
-        n_samples = N_per_var * problem_scenario["num_vars"]
+        #n_samples = N_per_var * problem_scenario["num_vars"]
+        n_samples = N_per_var
 
         print("=" * 80)
         print("LHS Sample Generation Configuration")
@@ -156,31 +157,33 @@ if __name__ == "__main__":
     # ========================================================================
     
     # 1. Choose the problem scenario
-    problem_scenario = problem_definitions.BERLIN_CONSTRAINED
+    problem_scenario = problem_definitions.BERLIN_SOBOL
     
     # 2. Set default values
     default_values = problem_definitions.BERLIN_DEFAULT_VALUES
     
     # 3. Number of samples per variable (will be multiplied by num_vars)
-    N_per_var = 50  # Generates: 50 * num_vars samples
+    N_per_var = 7  # Generates: 50 samples
     
     # 4. Output path for the CSV file
-    out_csv = "cache/LHS/lhs_samples_berlin_constrained.csv"
+    out_csv = "Calibration/cache/Berlin/Initial_LHS/Sobol_Space/LHS_samples_7.csv"
     
     # 5. Random seed for reproducibility
-    random_seed = 42  # Set to None for a random seed
+    random_seed = [(10 * n) + 1 for n in range(20)]  # Set to None for a random seed
     
     # 6. Columns to round to integer (optional)
     integer_columns = ['maxAgentPlanMemorySize', 'numberOfIterations', 'timeStepSize']
     
     # Example usage: Call main() with the current configuration
-    generate_lhs_samples(
-        problem_scenario=problem_scenario,
-        default_values=default_values,
-        N_per_var=N_per_var,
-        out_csv=out_csv,
-        random_seed=random_seed,
-        integer_columns=integer_columns,
-        normalize_replanning=True,
-        round_decimals=5
-    )
+    for seed in random_seed:
+        out_csv_seeded = out_csv.replace(".csv", f"_seed{seed}.csv")
+        generate_lhs_samples(
+            problem_scenario=problem_scenario,
+            default_values=default_values,
+            N_per_var=N_per_var,
+            out_csv=out_csv_seeded,
+            random_seed=seed,
+            integer_columns=integer_columns,
+            normalize_replanning=True,
+            round_decimals=5
+        )
