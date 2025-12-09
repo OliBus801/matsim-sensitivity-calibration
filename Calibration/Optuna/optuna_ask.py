@@ -73,17 +73,17 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def build_sampler(name: str, seed: int | None) -> optuna.samplers.BaseSampler:
+def build_sampler(name: str, seed: int | None, batch_size: int) -> optuna.samplers.BaseSampler:
     if name == "tpe":
-        return optuna.samplers.TPESampler(seed=seed)
+        return optuna.samplers.TPESampler(seed=seed, n_startup_trials=batch_size)
     if name == "cmaes":
-        return optuna.samplers.CmaEsSampler(seed=seed)
+        return optuna.samplers.CmaEsSampler(seed=seed, n_startup_trials=batch_size)
     if name == "gp":
         try:
             from optuna.samplers import GPSampler
         except Exception as exc:  # pragma: no cover - handled at runtime only
             raise RuntimeError("GPSampler is not available in this Optuna installation. You need to upgrade to Optuna >= 3.6.0") from exc
-        return GPSampler(seed=seed)
+        return GPSampler(seed=seed, n_startup_trials=batch_size)
     return optuna.samplers.RandomSampler(seed=seed)
 
 
