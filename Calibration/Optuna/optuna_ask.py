@@ -64,6 +64,12 @@ def parse_args() -> argparse.Namespace:
         "--search_space", default="berlin", choices=["berlin", "berlin_sobol"],
         help="Search space definition to use from problem_definitions."
     )
+    parser.add_argument(
+        "--batch_size",
+        type=int,
+        default=1,
+        help="Number of trials to ask and append to the CSV in one call (default: 1).",
+    )
     return parser.parse_args()
 
 
@@ -147,6 +153,9 @@ def write_trial_to_csv(csv_path: Path, params: dict[str, float | int]) -> None:
 
 def main() -> None:
     args = parse_args()
+    if args.batch_size < 1:
+        raise ValueError("--batch_size must be >= 1")
+
     sampler = build_sampler(args.sampler, args.seed)
     storage = JournalStorage(JournalFileBackend(str(args.journal)))
 
@@ -163,12 +172,13 @@ def main() -> None:
         load_if_exists=True,
     )
 
-    trial = study.ask()
-    params = suggest_parameters(trial, space)
-    params = post_process_params(params, BERLIN_DEFAULT_VALUES)
-    write_trial_to_csv(Path(args.csv_out), params)
-
-    print(f"Suggested trial #{trial.number} written to {args.csv_out}")
+    csv_path = Path(args.csv_out)
+    for _ in range(args.batch_size):
+        trial = study.ask()
+        params = suggest_parameters(trial, space)
+        params = post_process_params(params, BERLIN_DEFAULT_VALUES)
+        write_trial_to_csv(csv_path, params)
+        print(f"Suggested trial #{trial.number} written to {csv_path}")
 
 
 if __name__ == "__main__":

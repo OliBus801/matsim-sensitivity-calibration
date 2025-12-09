@@ -41,25 +41,33 @@ def parse_args() -> argparse.Namespace:
         type=int,
         help="Optional trial number to mark as complete. Defaults to the latest RUNNING trial.",
     )
+    parser.add_argument(
+        "--batch_size",
+        type=int,
+        default=1,
+        help="Number of trials/rows to report in one call (default: 1). Uses the last N rows.",
+    )
     return parser.parse_args()
 
 
-def read_metric_from_csv(
-    results_path: Path, metric: str, simulation_id: str | None
-) -> tuple[float, str]:
+def read_metrics_from_csv(
+    results_path: Path, metric: str, simulation_id: str | None, batch_size: int
+) -> list[tuple[float, str]]:
     with results_path.open() as fh:
         reader = csv.DictReader(fh)
         if reader.fieldnames is None or metric not in reader.fieldnames:
             raise ValueError(f"Metric column '{metric}' not found in {results_path}")
-        selected_row: dict[str, str] | None = None
-        for row in reader:
-            if simulation_id is None:
-                selected_row = row
-            elif row.get("Simulation") == simulation_id:
-                selected_row = row
-                break
-        if selected_row is None:
-            raise ValueError(f"No matching row found in {results_path}")
+        rows = list(reader)
+
+    if simulation_id is not None:
+        rows = [r for r in rows if r.get("Simulation") == simulation_id]
+
+    if not rows:
+        raise ValueError(f"No matching row found in {results_path}")
+
+    batch = rows[-batch_size:]
+    values: list[tuple[float, str]] = []
+    for selected_row in batch:
         try:
             value = float(selected_row[metric])
         except Exception as exc:  # pragma: no cover - runtime validation only
@@ -67,36 +75,48 @@ def read_metric_from_csv(
                 f"Cannot convert metric '{metric}' to float from row {selected_row}"
             ) from exc
         label = selected_row.get("Simulation", "<unknown>")
-        return value, label
+        values.append((value, label))
+    return values
 
 
-def pick_trial_number(study: optuna.Study, provided: int | None) -> int:
+def pick_trial_numbers(study: optuna.Study, provided: int | None, batch_size: int) -> list[int]:
     if provided is not None:
-        return provided
+        return list(range(provided, provided + batch_size))
     running_trials = study.get_trials(states=(TrialState.RUNNING,))
-    if not running_trials:
+    if len(running_trials) < batch_size:
         raise RuntimeError("No RUNNING trial found; specify --trial-number explicitly.")
-    return max(t.number for t in running_trials)
+    running_trials = sorted(running_trials, key=lambda t: t.number)
+    return [t.number for t in running_trials[:batch_size]]
 
 
 def main() -> None:
     args = parse_args()
+    if args.batch_size < 1:
+        raise ValueError("--batch_size must be >= 1")
+
     results_path = Path(args.results)
     if not results_path.exists():
         raise FileNotFoundError(f"Results file not found: {results_path}")
 
-    value, sim_label = read_metric_from_csv(results_path, args.metric, args.simulation_id)
+    metrics = read_metrics_from_csv(
+        results_path, args.metric, args.simulation_id, args.batch_size
+    )
 
     storage = JournalStorage(JournalFileBackend(str(args.journal)))
     study = optuna.load_study(study_name=args.study_name, storage=storage)
 
-    trial_number = pick_trial_number(study, args.trial_number)
-    study.tell(trial_number, value)
+    trial_numbers = pick_trial_numbers(study, args.trial_number, args.batch_size)
+    if len(trial_numbers) != len(metrics):
+        raise RuntimeError(
+            f"Batch size mismatch: {len(trial_numbers)} trials vs {len(metrics)} metrics."
+        )
 
-    print(
-        f"Reported metric '{args.metric}'={value} from simulation '{sim_label}' "
-        f"to trial #{trial_number}."
-    )
+    for trial_number, (value, sim_label) in zip(trial_numbers, metrics, strict=True):
+        study.tell(trial_number, value)
+        print(
+            f"Reported metric '{args.metric}'={value} from simulation '{sim_label}' "
+            f"to trial #{trial_number}."
+        )
 
 
 if __name__ == "__main__":
