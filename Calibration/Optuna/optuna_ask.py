@@ -156,7 +156,7 @@ def main() -> None:
     if args.batch_size < 1:
         raise ValueError("--batch_size must be >= 1")
 
-    sampler = build_sampler(args.sampler, args.seed)
+    sampler = build_sampler(args.sampler, args.seed, args.batch_size)
     storage = JournalStorage(JournalFileBackend(str(args.journal)))
 
     if args.search_space == "berlin_sobol":
