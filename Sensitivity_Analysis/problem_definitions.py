@@ -94,7 +94,7 @@ BERLIN = {
         [0, 1],         #'TimeAllocationMutator',
         [0, 1],         #'ReRoute',
         [0, 1],         #'SubtourModeChoice',
-        [0, 1],         #'ChangeExpBeta',
+        [0.01, 1],         #'ChangeExpBeta',
         [900, 3600],    #'mutationRange',
         [1, 10],        #'maxAgentPlanMemorySize',
         [1, 120],       #'timeStepSize',
@@ -135,7 +135,7 @@ BERLIN_CONSTRAINED = {
         [0.06, 0.35],   #'TimeAllocationMutator',
         [0, 1],         #'ReRoute',
         [0, 1],         #'SubtourModeChoice',
-        [0, 1],         #'ChangeExpBeta',
+        [0.01, 1],         #'ChangeExpBeta',
         [900, 3600],    #'mutationRange',
                 ]
 }
