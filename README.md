@@ -23,11 +23,9 @@ It combines simulation filtering, machine learning, and global sensitivity analy
 TODO : FIX THIS 
 matsim-sensitivity-calibration/
 │
-├── data/                    # Input/output data and simulation results
-├── notebooks/              # Jupyter notebooks for analysis and visualization
-├── scripts/                # Python scripts for training, filtering, and calibration
-├── config/                 # MATSim config files and parameter ranges
-├── models/                 # Trained surrogate models and classifiers
+├── Bounds_Selection/       # Plausibility-based filtering for initial bounds selection
+├── Calibration/            # Scripts to generate the samples for calibration tasks using Optuna 
+├── Sensitivity_Analysis/   # Scripts to generate sample for Morris/Sobol Global Sensitivity Analysis 
 └── README.md               # Project documentation
 ```
 
@@ -36,7 +34,7 @@ matsim-sensitivity-calibration/
 ## 🧪 Requirements
 
 - Python 3.10+
-- Dependencies listed in `requirements.txt` (install via `pip install -r requirements.txt`)
+- Dependencies listed in `Sensitivity_Analysis/requirements.txt` (install via `pip install -r requirements.txt`)
 - Java 11+ (for MATSim)
 - [MATSim](https://www.matsim.org/) scenario (e.g. Sioux Falls)
 
