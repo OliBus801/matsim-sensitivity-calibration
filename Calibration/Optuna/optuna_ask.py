@@ -31,6 +31,9 @@ from pathlib import Path
 import optuna
 from optuna.storages import JournalStorage
 from optuna.storages.journal import JournalFileBackend
+from optuna.integration import BoTorchSampler
+
+import torch
 
 # Make the repository root importable so we can load the search space definition.
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -54,7 +57,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--sampler",
         default="tpe",
-        choices=["tpe", "cmaes", "gp", "random"],
+        choices=["tpe", "cmaes", "gp", "random", "botorch"],
         help="Sampler to use for suggesting the next point.",
     )
     parser.add_argument(
@@ -84,6 +87,8 @@ def build_sampler(name: str, seed: int | None, batch_size: int) -> optuna.sample
         except Exception as exc:  # pragma: no cover - handled at runtime only
             raise RuntimeError("GPSampler is not available in this Optuna installation. You need to upgrade to Optuna >= 3.6.0") from exc
         return GPSampler(seed=seed, n_startup_trials=batch_size)
+    if name == "botorch":
+        return BoTorchSampler(seed=seed, n_startup_trials=batch_size, consider_running_trials=True)
     return optuna.samplers.RandomSampler(seed=seed)
 
 
@@ -155,6 +160,13 @@ def main() -> None:
     args = parse_args()
     if args.batch_size < 1:
         raise ValueError("--batch_size must be >= 1")
+    
+    # --- Check GPU ---
+    if args.sampler == "botorch":
+        if torch.cuda.is_available():
+            print(f"✅ BoTorch using GPU: {torch.cuda.get_device_name(0)}")
+        else:
+            print("⚠️  BoTorch sampler selected but no GPU found. Falling back to CPU.")
 
     sampler = build_sampler(args.sampler, args.seed, args.batch_size)
     storage = JournalStorage(JournalFileBackend(str(args.journal)))
